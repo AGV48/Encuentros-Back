@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { User } from './entities/user.entity';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 
 // Hacemos mock de la libería externa bcrypt
@@ -11,6 +11,7 @@ jest.mock('bcrypt');
 describe('UsersService', () => {
   let service: UsersService;
   let repository: Repository<User>;
+  let dataSource: DataSource;
 
   // Creamos el mock global del repositorio que vamos a inyectar
   const mockUserRepository = {
@@ -22,6 +23,11 @@ describe('UsersService', () => {
     createQueryBuilder: jest.fn(),
   };
 
+  const mockDataSource = {
+    query: jest.fn(),
+    createQueryRunner: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -30,11 +36,16 @@ describe('UsersService', () => {
           provide: getRepositoryToken(User),
           useValue: mockUserRepository,
         },
+        {
+          provide: DataSource,
+          useValue: mockDataSource,
+        },
       ],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
     repository = module.get<Repository<User>>(getRepositoryToken(User));
+    dataSource = module.get<DataSource>(DataSource);
   });
 
   afterEach(() => {
@@ -45,6 +56,7 @@ describe('UsersService', () => {
   it('debería estar definido', () => {
     expect(service).toBeDefined();
     expect(repository).toBeDefined();
+    expect(dataSource).toBeDefined();
   });
 
   describe('create', () => {

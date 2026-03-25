@@ -12,6 +12,7 @@ describe('UsersController', () => {
 
   const mockUsersService = {
     searchByName: jest.fn(),
+    annotateSearchResults: jest.fn(),
     create: jest.fn(),
     findByEmail: jest.fn(),
     login: jest.fn(),
@@ -65,23 +66,26 @@ describe('UsersController', () => {
     it('debería manejar error al verificar amistad en amistades table', async () => {
       const mockUsers = [{ id: 2, nombre: 'Test', email: 'test@test.com' }];
       mockUsersService.searchByName.mockResolvedValue(mockUsers);
-      mockDataSource.query.mockRejectedValueOnce(new Error('Table amistades no existe'));
+
+      const annotatedResult = [{ ...mockUsers[0], isFriend: false, pendingRequestFromMe: false, pendingRequestToMe: false }];
+      mockUsersService.annotateSearchResults.mockResolvedValue(annotatedResult);
 
       const result = await controller.searchUser('test', '1');
       expect(result.results[0].isFriend).toBe(false);
       expect(result.success).toBe(true);
+      expect(mockUsersService.annotateSearchResults).toHaveBeenCalledWith(mockUsers, 1);
     });
 
     it('debería manejar error al verificar pending request from me', async () => {
       const mockUsers = [{ id: 2, nombre: 'Test', email: 'test@test.com' }];
       mockUsersService.searchByName.mockResolvedValue(mockUsers);
-      mockDataSource.query
-        .mockResolvedValueOnce([{ cnt: 0 }]) // isFriend = false
-        .mockRejectedValueOnce(new Error('Table no existe')) // pendingFrom error
-        .mockResolvedValueOnce([{ cnt: 0 }]); // pendingTo = false
+
+      const annotatedResult = [{ ...mockUsers[0], isFriend: false, pendingRequestFromMe: false, pendingRequestToMe: false }];
+      mockUsersService.annotateSearchResults.mockResolvedValue(annotatedResult);
 
       const result = await controller.searchUser('test', '1');
       expect(result.results[0].pendingRequestFromMe).toBe(false);
+      expect(mockUsersService.annotateSearchResults).toHaveBeenCalled();
     });
   });
 
