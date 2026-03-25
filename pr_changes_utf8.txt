@@ -1,0 +1,8 @@
+﻿A	src/aporte/aporte.service.spec.ts
+A	src/auth/auth.service.spec.ts
+A	src/bolsillo/bolsillo.service.spec.ts
+M	src/encuentro/encuentro.controller.spec.ts
+M	src/encuentro/encuentro.service.spec.ts
+A	src/participantes-encuentro/participantes-encuentro.service.spec.ts
+A	src/presupuesto/presupuesto.service.spec.ts
+M	src/users/users.service.spec.ts

@@ -12,14 +12,14 @@ import { Encuentro } from '../encuentro/entities/encuentro.entity';
 export class ParticipantesEncuentroService {
   constructor(
     @InjectRepository(ParticipanteEncuentro)
-    private participanteRepository: Repository<ParticipanteEncuentro>,
+    private readonly participanteRepository: Repository<ParticipanteEncuentro>,
     @InjectRepository(ParticipantesEncuentroView)
-    private participantesViewRepository: Repository<ParticipantesEncuentroView>,
+    private readonly participantesViewRepository: Repository<ParticipantesEncuentroView>,
     @InjectRepository(VistaParticipantesAportes)
-    private participantesAportesRepository: Repository<VistaParticipantesAportes>,
+    private readonly participantesAportesRepository: Repository<VistaParticipantesAportes>,
     @InjectRepository(Encuentro)
-    private encuentroRepository: Repository<Encuentro>,
-    private dataSource: DataSource,
+    private readonly encuentroRepository: Repository<Encuentro>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createParticipanteDto: CreateParticipanteDto) {
@@ -193,7 +193,7 @@ export class ParticipantesEncuentroService {
   }
 
   async findParticipantesByEncuentroFromView(idEncuentro: number) {
-    return this.findAllFromView(idEncuentro, undefined);
+    return this.findAllFromView(idEncuentro);
   }
 
   async findEncuentrosByUsuarioFromView(idUsuario: number) {
@@ -240,12 +240,12 @@ export class ParticipantesEncuentroService {
       apellidoUsuario: row.apellido_usuario,
       nombreCompleto: `${row.nombre_usuario} ${row.apellido_usuario}`,
       rol: row.rol,
-      totalAportes: parseFloat(row.total_aportes) || 0
+      totalAportes: Number.parseFloat(row.total_aportes) || 0
     }));
   }
 
   async findAportesByEncuentro(idEncuentro: number) {
-    return this.findParticipantesConAportes(idEncuentro, undefined);
+    return this.findParticipantesConAportes(idEncuentro);
   }
 
   async findAportesByUsuario(idUsuario: number) {

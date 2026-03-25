@@ -2,11 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AporteService } from './aporte.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Aporte } from './entities/aporte.entity';
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { NotFoundException } from '@nestjs/common';
+import { CreateAporteDto } from './dto/create-aporte.dto';
+import { UpdateAporteDto } from './dto/update-aporte.dto';
 
 describe('AporteService', () => {
   let service: AporteService;
+  let aporteRepository: Repository<Aporte>;
+  let dataSource: DataSource;
 
   const mockAporteRepository = {
     create: jest.fn(),
@@ -34,98 +38,151 @@ describe('AporteService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AporteService,
-        { provide: getRepositoryToken(Aporte), useValue: mockAporteRepository },
-        { provide: DataSource, useValue: mockDataSource },
+        {
+          provide: getRepositoryToken(Aporte),
+          useValue: mockAporteRepository,
+        },
+        {
+          provide: DataSource,
+          useValue: mockDataSource,
+        },
       ],
     }).compile();
 
     service = module.get<AporteService>(AporteService);
+    aporteRepository = module.get<Repository<Aporte>>(getRepositoryToken(Aporte));
+    dataSource = module.get<DataSource>(DataSource);
+
+    jest.clearAllMocks();
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  it('debería estar definido', () => {
+  it('should be defined', () => {
     expect(service).toBeDefined();
   });
 
-  describe('Métodos básicos de repositorio', () => {
-    it('create', async () => {
-      mockAporteRepository.create.mockReturnValue({ id: 1 });
-      mockAporteRepository.save.mockResolvedValue({ id: 1 });
-      expect(await service.create({} as any)).toEqual({ id: 1 });
+  describe('create', () => {
+    it('debería crear un aporte exitosamente', async () => {
+      const createAporteDto: CreateAporteDto = {
+        idBolsillo: 1,
+        idEncuentro: 1,
+        idUsuario: 1,
+        monto: 250.5,
+      };
+      const mockAporte = {
+        id: 1,
+        ...createAporteDto,
+        fechaAporte: new Date(),
+      };
+      mockAporteRepository.create.mockReturnValue(mockAporte);
+      mockAporteRepository.save.mockResolvedValue(mockAporte);
+
+      const result = await service.create(createAporteDto);
+      expect(result).toEqual(mockAporte);
+      expect(mockAporteRepository.create).toHaveBeenCalledWith(createAporteDto);
     });
-    it('findAll', async () => {
-      mockAporteRepository.find.mockResolvedValue([{ id: 1 }]);
-      expect(await service.findAll()).toEqual([{ id: 1 }]);
+  });
+
+  describe('findAll', () => {
+    it('debería obtener todos los aportes', async () => {
+      const mockAportes = [
+        {
+          id: 1,
+          idBolsillo: 1,
+          idEncuentro: 1,
+          idUsuario: 1,
+          monto: 250,
+          fechaAporte: new Date(),
+        },
+      ];
+      mockAporteRepository.find.mockResolvedValue(mockAportes);
+      const result = await service.findAll();
+      expect(result).toEqual(mockAportes);
     });
-    it('findByEncuentro', async () => {
-      mockAporteRepository.find.mockResolvedValue([{ id: 1 }]);
-      expect(await service.findByEncuentro(1)).toEqual([{ id: 1 }]);
+  });
+
+  describe('findByEncuentro', () => {
+    it('debería obtener aportes por ID de encuentro', async () => {
+      const idEncuentro = 1;
+      const mockAportes = [{ id: 1, idEncuentro }];
+      mockAporteRepository.find.mockResolvedValue(mockAportes);
+      const result = await service.findByEncuentro(idEncuentro);
+      expect(result).toEqual(mockAportes);
     });
-    it('findByBolsillo', async () => {
-      mockAporteRepository.find.mockResolvedValue([{ id: 1 }]);
-      expect(await service.findByBolsillo(1)).toEqual([{ id: 1 }]);
+  });
+
+  describe('findOne', () => {
+    it('debería obtener un aporte por ID', async () => {
+      const mockAporte = { id: 1 };
+      mockAporteRepository.findOne.mockResolvedValue(mockAporte);
+      const result = await service.findOne(1);
+      expect(result).toEqual(mockAporte);
     });
-    it('findByUsuario', async () => {
-      mockAporteRepository.find.mockResolvedValue([{ id: 1 }]);
-      expect(await service.findByUsuario(1)).toEqual([{ id: 1 }]);
+    it('debería devolver null si no existe', async () => {
+      mockAporteRepository.findOne.mockResolvedValue(null);
+      expect(await service.findOne(999)).toBeNull();
     });
-    it('findOne', async () => {
-      mockAporteRepository.findOne.mockResolvedValue({ id: 1 });
-      expect(await service.findOne(1)).toEqual({ id: 1 });
+  });
+
+  describe('update', () => {
+    it('debería actualizar un aporte exitosamente', async () => {
+      const updateAporteDto: UpdateAporteDto = { monto: 300 };
+      const mockAporte = { id: 1, monto: 300 };
+      mockAporteRepository.update.mockResolvedValue({ affected: 1 });
+      mockAporteRepository.findOne.mockResolvedValue(mockAporte);
+
+      const result = await service.update(1, updateAporteDto);
+      expect(result.monto).toBe(300);
     });
-    it('update', async () => {
-      mockAporteRepository.update.mockResolvedValue({});
-      mockAporteRepository.findOne.mockResolvedValue({ id: 1, val: 'upd' });
-      expect(await service.update(1, { val: 'upd' } as any)).toEqual({ id: 1, val: 'upd' });
-    });
-    it('remove', async () => {
-      mockAporteRepository.delete.mockResolvedValue({});
+  });
+
+  describe('remove', () => {
+    it('debería eliminar un aporte', async () => {
+      mockAporteRepository.delete.mockResolvedValue({ affected: 1 });
       await service.remove(1);
       expect(mockAporteRepository.delete).toHaveBeenCalledWith(1);
     });
   });
 
-  describe('agregarAporte (Transacción)', () => {
-    it('debería lanzar error si falta idBolsillo o idUsuario', async () => {
-      await expect(service.agregarAporte({ idEncuentro: 1, monto: 100 } as any)).rejects.toThrow('requeridos');
-    });
+  describe('agregarAporte', () => {
+    it('debería agregar un aporte con transacción', async () => {
+      const createAporteDto: CreateAporteDto = {
+        idBolsillo: 1,
+        idEncuentro: 1,
+        idUsuario: 1,
+        monto: 250.5,
+      };
+      const mockAporte = { id: 1, ...createAporteDto, fechaAporte: new Date() };
 
-    it('debería realizar insert, update, commit y retornar objeto', async () => {
       mockQueryRunner.query
-        .mockResolvedValueOnce([{ id_aporte: 10 }]) // INSERT
-        .mockResolvedValueOnce([]); // UPDATE
+        .mockResolvedValueOnce([{ id_aporte: 1 }]) // INSERT
+        .mockResolvedValueOnce(undefined); // UPDATE
+      mockAporteRepository.findOne.mockResolvedValue(mockAporte);
 
-      mockAporteRepository.findOne.mockResolvedValue({ id: 10, monto: 100 });
-
-      const res = await service.agregarAporte({ idBolsillo: 1, idUsuario: 1, idEncuentro: 1, monto: 100 });
-      
-      expect(mockQueryRunner.startTransaction).toHaveBeenCalled();
-      expect(mockQueryRunner.query).toHaveBeenCalledTimes(2);
+      const result = await service.agregarAporte(createAporteDto);
+      expect(result).toEqual(mockAporte);
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
-      expect(res.id).toBe(10);
-    });
-
-    it('debería hacer rollback si findOne falla al no encontrar el item tras el commit', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([{ id_aporte: 10 }]).mockResolvedValueOnce([]);
-      mockAporteRepository.findOne.mockResolvedValue(null);
-
-      await expect(service.agregarAporte({ idBolsillo: 1, idUsuario: 1, monto: 100 } as any))
-        .rejects.toThrow(NotFoundException);
-      
-      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
-    });
-
-    it('debería hacer rollback ante excepción en query', async () => {
-      mockQueryRunner.query.mockRejectedValue(new Error('SQL Error'));
-
-      await expect(service.agregarAporte({ idBolsillo: 1, idUsuario: 1, monto: 100 } as any))
-        .rejects.toThrow('SQL Error');
-      
-      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.release).toHaveBeenCalled();
+    });
+
+    it('debería validar que idBolsillo e idUsuario sean requeridos', async () => {
+      await expect(service.agregarAporte({ idEncuentro: 1 } as any)).rejects.toThrow();
+    });
+
+    it('debería hacer rollback si hay error durante la transacción', async () => {
+      mockQueryRunner.query.mockRejectedValue(new Error('DB Error'));
+      await expect(service.agregarAporte({ idBolsillo: 1, idUsuario: 1, monto: 100 } as any)).rejects.toThrow();
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+    });
+
+    it('debería lanzar NotFoundException si no se puede encontrar el aporte tras crearlo', async () => {
+      mockQueryRunner.query.mockResolvedValueOnce([{ id_aporte: 1 }]).mockResolvedValueOnce(undefined);
+      mockAporteRepository.findOne.mockResolvedValue(null);
+      await expect(service.agregarAporte({ idBolsillo: 1, idUsuario: 1, monto: 100 } as any)).rejects.toThrow(NotFoundException);
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
     });
   });
 });

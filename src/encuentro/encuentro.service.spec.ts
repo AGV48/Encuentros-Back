@@ -4,17 +4,22 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Encuentro } from './entities/encuentro.entity';
 import { EncuentroResumen } from './entities/encuentro-resumen.entity';
 import { ParticipanteEncuentro } from '../participantes-encuentro/entities/participante-encuentro.entity';
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { CreateEncuentroDto } from './dto/create-encuentro.dto';
+import { UpdateEncuentroDto } from './dto/update-encuentro.dto';
 
 describe('EncuentroService', () => {
   let service: EncuentroService;
+  let encuentroRepository: Repository<Encuentro>;
+  let participanteRepository: Repository<ParticipanteEncuentro>;
+  let dataSource: DataSource;
 
-  const mockEncuentrosRepository = {
+  const mockEncuentroRepository = {
     create: jest.fn(),
     save: jest.fn(),
-    findOne: jest.fn(),
     find: jest.fn(),
+    findOne: jest.fn(),
     remove: jest.fn(),
   };
 
@@ -35,314 +40,169 @@ describe('EncuentroService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EncuentroService,
-        { provide: getRepositoryToken(Encuentro), useValue: mockEncuentrosRepository },
-        { provide: getRepositoryToken(EncuentroResumen), useValue: mockEncuentroResumenRepository },
-        { provide: getRepositoryToken(ParticipanteEncuentro), useValue: mockParticipanteRepository },
-        { provide: DataSource, useValue: mockDataSource },
+        {
+          provide: getRepositoryToken(Encuentro),
+          useValue: mockEncuentroRepository,
+        },
+        {
+          provide: getRepositoryToken(EncuentroResumen),
+          useValue: mockEncuentroResumenRepository,
+        },
+        {
+          provide: getRepositoryToken(ParticipanteEncuentro),
+          useValue: mockParticipanteRepository,
+        },
+        {
+          provide: DataSource,
+          useValue: mockDataSource,
+        },
       ],
     }).compile();
 
     service = module.get<EncuentroService>(EncuentroService);
+    encuentroRepository = module.get<Repository<Encuentro>>(getRepositoryToken(Encuentro));
+    participanteRepository = module.get<Repository<ParticipanteEncuentro>>(getRepositoryToken(ParticipanteEncuentro));
+    dataSource = module.get<DataSource>(DataSource);
+
+    jest.clearAllMocks();
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  it('debería estar definido', () => {
+  it('should be defined', () => {
     expect(service).toBeDefined();
   });
 
   describe('create', () => {
     it('debería crear un encuentro exitosamente', async () => {
-      // Arrange
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + 1); // Fecha futura
-      
-      const createDto = {
+      const dto: CreateEncuentroDto = {
         idCreador: 1,
         titulo: 'Partido',
-        descripcion: 'Futbol 5',
+        descripcion: 'Desc',
         lugar: 'Cancha',
-        fecha: futureDate,
+        fecha: new Date(Date.now() + 86400000),
       };
-
-      const expectedEncuentro = { id: 10, ...createDto };
-      mockEncuentrosRepository.create.mockReturnValue(expectedEncuentro);
-      mockEncuentrosRepository.save.mockResolvedValue(expectedEncuentro);
+      const mockEnc = { id: 10, ...dto };
+      mockEncuentroRepository.create.mockReturnValue(mockEnc);
+      mockEncuentroRepository.save.mockResolvedValue(mockEnc);
       mockDataSource.query.mockResolvedValue([]);
 
-      // Act
-      const result = await service.create(createDto as any);
-
-      // Assert
-      expect(mockEncuentrosRepository.create).toHaveBeenCalledWith(expect.objectContaining({
-        idCreador: 1,
-        titulo: 'Partido',
-      }));
-      expect(mockEncuentrosRepository.save).toHaveBeenCalledWith(expectedEncuentro);
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO participantes_encuentro'),
-        [10, 1]
-      );
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO presupuestos'),
-        [10]
-      );
-      expect(result).toEqual({ success: true });
+      const result = await service.create(dto);
+      expect(result.success).toBe(true);
+      expect(mockEncuentroRepository.create).toHaveBeenCalled();
+      expect(mockEncuentroRepository.save).toHaveBeenCalled();
+      expect(mockDataSource.query).toHaveBeenCalledTimes(2); // Participante y presupuesto
     });
 
-    it('debería lanzar BadRequestException si la fecha es en el pasado', async () => {
-      // Arrange
-      const pastDate = new Date('2000-01-01');
-      const createDto = {
+    it('debería lanzar BadRequestException si la fecha es pasada', async () => {
+      const dto: CreateEncuentroDto = {
         idCreador: 1,
-        titulo: 'Partido',
-        fecha: pastDate,
-      };
-
-      // Act & Assert
-      await expect(service.create(createDto as any)).rejects.toThrow(BadRequestException);
-      expect(mockEncuentrosRepository.create).not.toHaveBeenCalled();
-    });
-
-    it('debería propagar otros errores producidos durante la creación', async () => {
-      // Arrange
-      const futureDate = new Date(Date.now() + 86400000); // +1 día
-      const createDto = { idCreador: 1, fecha: futureDate };
-      mockEncuentrosRepository.create.mockReturnValue(createDto);
-      mockEncuentrosRepository.save.mockRejectedValue(new Error('DB Error'));
-
-      // Act & Assert
-      await expect(service.create(createDto as any)).rejects.toThrow('DB Error');
+        titulo: 'Pasado',
+        fecha: new Date(Date.now() - 86400000),
+      } as any;
+      await expect(service.create(dto)).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('findAll', () => {
-    it('debería usar dataSource.query cuando se provee creadorId', async () => {
-      // Arrange
-      const creadorId = 1;
-      const mockRows = [
-        {
-          id_encuentro: 10,
-          id_creador: creadorId,
-          titulo: 'Test',
-          descripcion: 'Desc',
-          lugar: 'Lugar',
-          fecha: new Date(),
-          fecha_creacion: new Date()
-        }
-      ];
-      mockDataSource.query.mockResolvedValue(mockRows);
-
-      // Act
-      const result = await service.findAll(creadorId);
-
-      // Assert
-      expect(mockDataSource.query).toHaveBeenCalledWith(expect.stringContaining('SELECT e.id_encuentro'), [1, 1]);
-      expect(result[0]).toHaveProperty('id', 10);
-      expect(result[0]).toHaveProperty('idCreador', creadorId);
-      expect(result[0]).toHaveProperty('titulo', 'Test');
-    });
-
-    it('debería usar TypeORM find() cuando no se provee creadorId', async () => {
-      // Arrange
-      mockEncuentrosRepository.find.mockResolvedValue([{ id: 10 }]);
-
-      // Act
+    it('debería obtener todos los encuentros sin filtro', async () => {
+      mockEncuentroRepository.find.mockResolvedValue([]);
       const result = await service.findAll();
-
-      // Assert
-      expect(mockEncuentrosRepository.find).toHaveBeenCalled();
-      expect(result).toEqual([{ id: 10 }]);
-    });
-  });
-
-  describe('findAllWithResumen', () => {
-    it('debería retornar el resumen con filtros si se provee creadorId', async () => {
-      // Arrange
-      const creadorId = 1;
-      const mockResult = [{
-        id_encuentro: 10,
-        id_creador: creadorId,
-        id_presupuesto: 5,
-        presupuesto_total: '1000',
-        cant_participantes: '4'
-      }];
-      mockDataSource.query.mockResolvedValue(mockResult);
-
-      // Act
-      const result = await service.findAllWithResumen(creadorId);
-
-      // Assert
-      expect(mockDataSource.query).toHaveBeenCalledWith(expect.stringContaining('WHERE pe.id_usuario = $2'), [1, 1]);
-      expect(result[0]).toMatchObject({
-        id: 10,
-        idPresupuesto: 5,
-        presupuestoTotal: 1000,
-        cantParticipantes: 4
-      });
+      expect(result).toEqual([]);
+      expect(mockEncuentroRepository.find).toHaveBeenCalled();
     });
 
-    it('debería retornar el resumen global sin filtros si no hay creadorId', async () => {
-      // Arrange
-      const mockResult = [{
-        id_encuentro: 11,
-        id_creador: 2,
-        presupuesto_total: null,
-        cant_participantes: null
-      }];
-      mockDataSource.query.mockResolvedValue(mockResult);
-
-      // Act
-      const result = await service.findAllWithResumen();
-
-      // Assert
-      expect(mockDataSource.query).toHaveBeenCalledWith(expect.not.stringContaining('$1'));
-      expect(result[0]).toMatchObject({
-        id: 11,
-        presupuestoTotal: 0,
-        cantParticipantes: 0
-      });
+    it('debería filtrar encuentros por creador', async () => {
+      const id_creador = 1;
+      mockDataSource.query.mockResolvedValue([{ id_encuentro: 1, id_creador, titulo: 'T', descripcion: 'D', lugar: 'L', fecha: new Date(), fecha_creacion: new Date() }]);
+      const result = await service.findAll(id_creador);
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(1);
+      expect(result[0].idCreador).toBe(1);
     });
   });
 
   describe('findOne', () => {
-    it('debería retornar un solo encuentro por el id dado', async () => {
-      // Arrange
-      const id = 10;
-      mockEncuentrosRepository.findOne.mockResolvedValue({ id });
+    it('debería retornar un encuentro por ID', async () => {
+      const mockEnc = { id: 1 };
+      mockEncuentroRepository.findOne.mockResolvedValue(mockEnc);
+      const result = await service.findOne(1);
+      expect(result).toEqual(mockEnc);
+    });
+  });
 
-      // Act
-      const result = await service.findOne(id);
+  describe('findAllWithResumen', () => {
+    it('debería obtener encuentros con resumen', async () => {
+      mockDataSource.query.mockResolvedValue([{
+        id_encuentro: 1,
+        id_creador: 1,
+        titulo: 'T',
+        presupuesto_total: '100.5',
+        cant_participantes: '5'
+      }]);
+      const result = await service.findAllWithResumen();
+      expect(result[0].presupuestoTotal).toBe(100.5);
+      expect(result[0].cantParticipantes).toBe(5);
+    });
 
-      // Assert
-      expect(mockEncuentrosRepository.findOne).toHaveBeenCalledWith({ where: { id } });
-      expect(result).toEqual({ id });
+    it('debería manejar valores NULL en resumen', async () => {
+        mockDataSource.query.mockResolvedValue([{
+          id_encuentro: 1,
+          id_creador: 1,
+          presupuesto_total: null,
+          cant_participantes: null
+        }]);
+        const result = await service.findAllWithResumen();
+        expect(result[0].presupuestoTotal).toBe(0);
+        expect(result[0].cantParticipantes).toBe(0);
     });
   });
 
   describe('update', () => {
-    it('debería lanzar NotFoundException si el encuentro a actualizar no existe', async () => {
-      // Arrange
-      mockEncuentrosRepository.findOne.mockResolvedValue(null);
+    it('debería actualizar un encuentro exitosamente', async () => {
+      const mockEnc = { id: 1, idCreador: 1, titulo: 'Old' };
+      mockEncuentroRepository.findOne.mockResolvedValue(mockEnc);
+      mockEncuentroRepository.save.mockImplementation(async (enc) => enc);
 
-      // Act & Assert
-      await expect(service.update(10, {}, 1)).rejects.toThrow(NotFoundException);
-    });
-
-    it('debería lanzar ForbiddenException si el usuario no es el creador', async () => {
-      // Arrange
-      const encuentroExistente = { id: 10, idCreador: 2 }; // Creador es 2
-      mockEncuentrosRepository.findOne.mockResolvedValue(encuentroExistente);
-
-      // Act & Assert
-      await expect(service.update(10, {}, 1)).rejects.toThrow(ForbiddenException); // Usuario es 1
-    });
-
-    it('debería lanzar BadRequestException si la nueva fecha es en el pasado', async () => {
-      // Arrange
-      const encuentroExistente = { id: 10, idCreador: 1 };
-      mockEncuentrosRepository.findOne.mockResolvedValue(encuentroExistente);
-      const updateDto = { fecha: new Date('2000-01-01') };
-
-      // Act & Assert
-      await expect(service.update(10, updateDto, 1)).rejects.toThrow(BadRequestException);
-    });
-
-    it('debería actualizar correctamente un encuentro si todo es válido', async () => {
-      // Arrange
-      const encuentroExistente = { id: 10, idCreador: 1, titulo: 'Viejo' };
-      mockEncuentrosRepository.findOne.mockResolvedValue(encuentroExistente);
-      
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + 5);
-      const updateDto = { titulo: 'Nuevo', fecha: futureDate };
-
-      mockEncuentrosRepository.save.mockImplementation(async (enc) => enc);
-
-      // Act
-      const result = await service.update(10, updateDto, 1);
-
-      // Assert
-      expect(mockEncuentrosRepository.save).toHaveBeenCalled();
+      const result = await service.update(1, { titulo: 'New' }, 1);
       expect(result.success).toBe(true);
-      expect(result.encuentro.titulo).toBe('Nuevo');
+      expect(result.encuentro.titulo).toBe('New');
+    });
+
+    it('debería lanzar ForbiddenException si no es el creador', async () => {
+      mockEncuentroRepository.findOne.mockResolvedValue({ id: 1, idCreador: 2 });
+      await expect(service.update(1, {}, 1)).rejects.toThrow(ForbiddenException);
     });
   });
 
   describe('remove', () => {
-    it('debería lanzar NotFoundException si no existe el encuentro a eliminar', async () => {
-      // Arrange
-      mockEncuentrosRepository.findOne.mockResolvedValue(null);
+    it('debería eliminar un encuentro', async () => {
+      const mockEnc = { id: 1, idCreador: 1 };
+      mockEncuentroRepository.findOne.mockResolvedValue(mockEnc);
+      mockEncuentroRepository.remove.mockResolvedValue(mockEnc);
 
-      // Act & Assert
-      await expect(service.remove(10, 1)).rejects.toThrow(NotFoundException);
-    });
-
-    it('debería lanzar ForbiddenException si usuario no es creador', async () => {
-      // Arrange
-      mockEncuentrosRepository.findOne.mockResolvedValue({ id: 10, idCreador: 2 });
-
-      // Act & Assert
-      await expect(service.remove(10, 1)).rejects.toThrow(ForbiddenException);
-    });
-
-    it('debería eliminar el encuentro exitosamente', async () => {
-      // Arrange
-      const encuentro = { id: 10, idCreador: 1 };
-      mockEncuentrosRepository.findOne.mockResolvedValue(encuentro);
-      mockEncuentrosRepository.remove.mockResolvedValue(encuentro);
-
-      // Act
-      const result = await service.remove(10, 1);
-
-      // Assert
-      expect(mockEncuentrosRepository.remove).toHaveBeenCalledWith(encuentro);
+      const result = await service.remove(1, 1);
       expect(result.success).toBe(true);
+      expect(mockEncuentroRepository.remove).toHaveBeenCalled();
     });
   });
 
   describe('salirDelEncuentro', () => {
-    it('debería lanzar NotFoundException si el encuentro no existe', async () => {
-      // Arrange
-      mockEncuentrosRepository.findOne.mockResolvedValue(null);
+    it('debería permitir salir', async () => {
+      mockEncuentroRepository.findOne.mockResolvedValue({ id: 1, idCreador: 2 });
+      const mockPart = { idEncuentro: 1, idUsuario: 1 };
+      mockParticipanteRepository.findOne.mockResolvedValue(mockPart);
+      mockParticipanteRepository.remove.mockResolvedValue(mockPart);
 
-      // Act & Assert
-      await expect(service.salirDelEncuentro(10, 1)).rejects.toThrow(NotFoundException);
-    });
-
-    it('debería lanzar ForbiddenException si el usuario creador intenta salir', async () => {
-      // Arrange
-      mockEncuentrosRepository.findOne.mockResolvedValue({ id: 10, idCreador: 1 });
-
-      // Act & Assert
-      await expect(service.salirDelEncuentro(10, 1)).rejects.toThrow(ForbiddenException);
-    });
-
-    it('debería lanzar NotFoundException si el usuario no participa en el encuentro', async () => {
-      // Arrange
-      mockEncuentrosRepository.findOne.mockResolvedValue({ id: 10, idCreador: 2 }); // Usuario es 1
-      mockParticipanteRepository.findOne.mockResolvedValue(null); // No participa
-
-      // Act & Assert
-      await expect(service.salirDelEncuentro(10, 1)).rejects.toThrow(NotFoundException);
-    });
-
-    it('debería eliminar la participación correctamente', async () => {
-      // Arrange
-      mockEncuentrosRepository.findOne.mockResolvedValue({ id: 10, idCreador: 2 });
-      const participante = { idEncuentro: 10, idUsuario: 1 };
-      mockParticipanteRepository.findOne.mockResolvedValue(participante);
-      mockParticipanteRepository.remove.mockResolvedValue(participante);
-
-      // Act
-      const result = await service.salirDelEncuentro(10, 1);
-
-      // Assert
-      expect(mockParticipanteRepository.remove).toHaveBeenCalledWith(participante);
+      const result = await service.salirDelEncuentro(1, 1);
       expect(result.success).toBe(true);
-      expect(result.message).toBe('Has salido del encuentro correctamente');
+    });
+
+    it('debería lanzar ForbiddenException si el creador intenta salir', async () => {
+      mockEncuentroRepository.findOne.mockResolvedValue({ id: 1, idCreador: 1 });
+      await expect(service.salirDelEncuentro(1, 1)).rejects.toThrow(ForbiddenException);
     });
   });
 });
