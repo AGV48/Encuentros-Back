@@ -45,6 +45,13 @@ describe('AporteService', () => {
     dataSource = module.get<DataSource>(DataSource);
 
     jest.clearAllMocks();
+    mockAporteRepository.create.mockReset();
+    mockAporteRepository.save.mockReset();
+    mockAporteRepository.find.mockReset();
+    mockAporteRepository.findOne.mockReset();
+    mockAporteRepository.update.mockReset();
+    mockAporteRepository.delete.mockReset();
+    mockDataSource.createQueryRunner.mockReset();
   });
 
   it('should be defined', () => {
@@ -464,6 +471,19 @@ describe('AporteService', () => {
       // Act & Assert
       await expect(service.agregarAporte(createAporteDto)).rejects.toThrow(
         NotFoundException,
+      );
+    });
+
+    it('debería lanzar error cuando ambos idBolsillo e idUsuario están vacíos', async () => {
+      // Arrange
+      const createAporteDto = {
+        idEncuentro: 1,
+        monto: 250.5,
+      } as CreateAporteDto;
+
+      // Act & Assert
+      await expect(service.agregarAporte(createAporteDto)).rejects.toThrow(
+        'Los campos idBolsillo e idUsuario son requeridos para agregar un aporte',
       );
     });
   });
