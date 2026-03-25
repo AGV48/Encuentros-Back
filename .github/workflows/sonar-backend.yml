@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, feature/**]
   pull_request:
-    branches: [main, feature/**]
+    branches: ['**']
 
 jobs:
   sonar:
@@ -25,7 +25,7 @@ jobs:
       - run: npm ci
 
       - name: Run tests with coverage
-        run: npm run test:cov -- --passWithNoTests || true
+        run: npm run test:cov -- --passWithNoTests --coverageReporters=lcov --coverageReporters=text
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
