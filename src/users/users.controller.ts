@@ -10,7 +10,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @Controller('users')
 @UseGuards(JwtAuthGuard) // Protege todos los endpoints de usuarios
 export class UsersController {
-  constructor(private readonly usersService: UsersService, private dataSource: DataSource) {}
+  constructor(private readonly usersService: UsersService, private readonly dataSource: DataSource) {}
 
   @Get('search_user')
   async searchUser(@Query('q') q: string, @Query('currentUser') currentUser?: string) {

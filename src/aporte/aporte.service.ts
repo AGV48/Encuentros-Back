@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { InjectDataSource } from '@nestjs/typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CreateAporteDto } from './dto/create-aporte.dto';
 import { UpdateAporteDto } from './dto/update-aporte.dto';
@@ -10,7 +9,7 @@ import { Aporte } from './entities/aporte.entity';
 export class AporteService {
   constructor(
     @InjectRepository(Aporte)
-    private aporteRepository: Repository<Aporte>,
+    private readonly aporteRepository: Repository<Aporte>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
