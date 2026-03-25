@@ -13,6 +13,7 @@ describe('UsersController', () => {
   const mockUsersService = {
     searchByName: jest.fn(),
     annotateSearchResults: jest.fn(),
+    createFriendRequest: jest.fn(),
     create: jest.fn(),
     findByEmail: jest.fn(),
     login: jest.fn(),
@@ -91,27 +92,21 @@ describe('UsersController', () => {
 
   describe('createFriendRequest - edge cases', () => {
     it('debería hacer rollback si falla la transacción al aceptar solicitud cruzada', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ cnt: 0 }]) // No son amigos
-        .mockResolvedValueOnce([{ id_relacion: 5 }]); // Existe solicitud inversa pendiente
-
-      mockQueryRunner.query.mockRejectedValue(new Error('Transaction error'));
+      const transactionError = new Error('Transaction error');
+      mockUsersService.createFriendRequest.mockRejectedValue(transactionError);
 
       await expect(controller.createFriendRequest({ from: 1, to: 2 })).rejects.toThrow('Transaction error');
-      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockUsersService.createFriendRequest).toHaveBeenCalledWith(1, 2);
     });
 
     it('debería lanzar error con código -20002 (solicitud cruzada)', async () => {
-        mockDataSource.query
-          .mockResolvedValueOnce([{ cnt: 0 }]) // friendCheck: no son amigos
-          .mockResolvedValueOnce([]); // reverseCheck: no hay solicitud inversa
-  
         const oracleError = new Error('ORA-20002: El usuario al que le va a enviar una solicitud ya le ha enviado una a usted.');
-        mockQueryRunner.query.mockRejectedValue(oracleError);
-  
+        mockUsersService.createFriendRequest.mockRejectedValue(oracleError);
+
         await expect(controller.createFriendRequest({ from: 1, to: 2 })).rejects.toThrow(
           'El usuario al que le va a enviar una solicitud ya le ha enviado una a usted.',
         );
+        expect(mockUsersService.createFriendRequest).toHaveBeenCalledWith(1, 2);
       });
   });
 
