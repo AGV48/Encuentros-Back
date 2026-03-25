@@ -529,6 +529,20 @@ describe('UsersController - Amistades', () => {
       expect(result.success).toBe(true);
     });
 
+    it('debería hacer rollback si falla la transacción al aceptar solicitud cruzada', async () => {
+      // Arrange
+      mockDataSource.query
+        .mockResolvedValueOnce([{ cnt: 0 }]) // No son amigos
+        .mockResolvedValueOnce([{ id_relacion: 5 }]); // Existe solicitud inversa pendiente
+
+      // Forzar que el queryRunner falle al intentar hacer UPDATE o INSERT de la amistad cruzada
+      mockQueryRunner.query.mockRejectedValue(new Error('Transaction error accepting cross request'));
+
+      // Act & Assert
+      await expect(controller.createFriendRequest({ from: 1, to: 2 })).rejects.toThrow('Transaction error accepting cross request');
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+    });
+
     it('debería lanzar error con código -20002 (solicitud cruzada)', async () => {
       // Arrange - Los errores Oracle -20002/-20003 vienen de la transacción principal
       // El friend check y reverse check deben pasar, el error viene del INSERT
