@@ -11,53 +11,50 @@ import { ParticipanteEncuentro } from '../participantes-encuentro/entities/parti
 export class EncuentroService {
   constructor(
       @InjectRepository(Encuentro)
-      private encuentrosRepository: Repository<Encuentro>,
+      private readonly encuentrosRepository: Repository<Encuentro>,
       @InjectRepository(EncuentroResumen)
-      private encuentroResumenRepository: Repository<EncuentroResumen>,
+      private readonly encuentroResumenRepository: Repository<EncuentroResumen>,
       @InjectRepository(ParticipanteEncuentro)
-      private participanteRepository: Repository<ParticipanteEncuentro>,
-      private dataSource: DataSource,
+      private readonly participanteRepository: Repository<ParticipanteEncuentro>,
+      private readonly dataSource: DataSource,
     ) {}
   async create(createEncuentroDto: CreateEncuentroDto) {
     const { idCreador, titulo, descripcion, lugar, fecha } = createEncuentroDto as any;
-    try {
-      const fechaParam = fecha instanceof Date ? fecha : new Date(fecha);
-      
-      // Validación: la fecha no puede ser pasada
-      if (fechaParam.getTime() < Date.now()) {
-        throw new BadRequestException('La fecha del encuentro no puede ser anterior a la fecha actual');
-      }
-      
-      // Insertar directamente usando TypeORM
-      const nuevoEncuentro = this.encuentrosRepository.create({
-        idCreador,
-        titulo,
-        descripcion,
-        lugar,
-        fecha: fechaParam,
-      });
-      
-      // Guardar el encuentro para obtener su ID generado
-      await this.encuentrosRepository.save(nuevoEncuentro);
-
-      // Insertar el usuario como creador en la tabla de participantes usando SQL directo
-      const sql = `
-        INSERT INTO participantes_encuentro (id_encuentro, id_usuario, rol)
-        VALUES ($1, $2, 'creador')
-      `;
-
-      //Crear presupuesto asociado al encuentro
-      const sqlPresupuesto = `
-        INSERT INTO presupuestos (id_encuentro, presupuesto_total)
-        VALUES ($1, 0)
-      `;
-
-      await this.dataSource.query(sql, [nuevoEncuentro.id, idCreador]);
-      await this.dataSource.query(sqlPresupuesto, [nuevoEncuentro.id]);
-      return { success: true };
-    } catch (err) {
-      throw err;
+    
+    const fechaParam = fecha instanceof Date ? fecha : new Date(fecha);
+    
+    // Validación: la fecha no puede ser pasada
+    if (fechaParam.getTime() < Date.now()) {
+      throw new BadRequestException('La fecha del encuentro no puede ser anterior a la fecha actual');
     }
+    
+    // Insertar directamente usando TypeORM
+    const nuevoEncuentro = this.encuentrosRepository.create({
+      idCreador,
+      titulo,
+      descripcion,
+      lugar,
+      fecha: fechaParam,
+    });
+    
+    // Guardar el encuentro para obtener su ID generado
+    await this.encuentrosRepository.save(nuevoEncuentro);
+
+    // Insertar el usuario como creador en la tabla de participantes usando SQL directo
+    const sql = `
+      INSERT INTO participantes_encuentro (id_encuentro, id_usuario, rol)
+      VALUES ($1, $2, 'creador')
+    `;
+
+    //Crear presupuesto asociado al encuentro
+    const sqlPresupuesto = `
+      INSERT INTO presupuestos (id_encuentro, presupuesto_total)
+      VALUES ($1, 0)
+    `;
+
+    await this.dataSource.query(sql, [nuevoEncuentro.id, idCreador]);
+    await this.dataSource.query(sqlPresupuesto, [nuevoEncuentro.id]);
+    return { success: true };
   }
 
   async findAll(creadorId?: number) {
@@ -141,8 +138,8 @@ export class EncuentroService {
         fecha: row.fecha,
         fechaCreacion: row.fecha_creacion,
         idPresupuesto: row.id_presupuesto,
-        presupuestoTotal: parseFloat(row.presupuesto_total) || 0,
-        cantParticipantes: parseInt(row.cant_participantes) || 0
+        presupuestoTotal: Number.parseFloat(row.presupuesto_total) || 0,
+        cantParticipantes: Number.parseInt(row.cant_participantes) || 0
       }));
     }
     
@@ -177,8 +174,8 @@ export class EncuentroService {
       fecha: row.fecha,
       fechaCreacion: row.fecha_creacion,
       idPresupuesto: row.id_presupuesto,
-      presupuestoTotal: parseFloat(row.presupuesto_total) || 0,
-      cantParticipantes: parseInt(row.cant_participantes) || 0
+      presupuestoTotal: Number.parseFloat(row.presupuesto_total) || 0,
+      cantParticipantes: Number.parseInt(row.cant_participantes) || 0
     }));
   }
 
