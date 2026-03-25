@@ -84,6 +84,10 @@ describe('ParticipantesEncuentroService', () => {
 
     // Limpiar mocks
     jest.clearAllMocks();
+    mockDataSource.query.mockReset();
+    mockParticipanteRepository.find.mockReset();
+    mockParticipanteRepository.findOne.mockReset();
+    mockEncuentroRepository.findOne.mockReset();
   });
 
   it('should be defined', () => {
@@ -221,13 +225,12 @@ describe('ParticipantesEncuentroService', () => {
       );
     });
 
-    it('debería usar rol "participante" por defecto', async () => {
+    it('debería lanzar ConflictException si hay error insertando participante', async () => {
       // Arrange
       const createParticipanteDto: CreateParticipanteDto = {
         idEncuentro: 1,
         idUsuario: 2,
         idSolicitante: 1,
-        // sin rol especificado
       };
 
       const mockEncuentro = {
@@ -239,26 +242,13 @@ describe('ParticipantesEncuentroService', () => {
         fecha: new Date(),
       };
 
-      const mockParticipante = {
-        id: 1,
-        idEncuentro: 1,
-        idUsuario: 2,
-        rol: 'participante',
-      };
-
       mockEncuentroRepository.findOne.mockResolvedValue(mockEncuentro);
-      mockParticipanteRepository.findOne
-        .mockResolvedValueOnce(null) // Primera llamada - verificar que no existe
-        .mockResolvedValueOnce(mockParticipante); // Segunda llamada - recuperar insertado
-      mockDataSource.query.mockResolvedValue([]);
+      mockParticipanteRepository.findOne.mockResolvedValueOnce(null); // No existe
+      mockDataSource.query.mockRejectedValue(new Error('Database error'));
 
-      // Act
-      await service.create(createParticipanteDto);
-
-      // Assert
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO participantes_encuentro'),
-        [1, 2, 'participante'],
+      // Act & Assert
+      await expect(service.create(createParticipanteDto)).rejects.toThrow(
+        'Error al agregar participante al encuentro',
       );
     });
   });
@@ -827,6 +817,61 @@ describe('ParticipantesEncuentroService', () => {
 
       // Assert
       expect(result[0].totalAportes).toBe(0);
+    });
+
+    it('debería filtrar por usuario', async () => {
+      // Arrange
+      const idUsuario = 1;
+      const mockResult = [
+        {
+          id_encuentro: 1,
+          nombre_encuentro: 'Encuentro Test',
+          id_usuario: 1,
+          nombre_usuario: 'Juan',
+          apellido_usuario: 'Pérez',
+          rol: 'participante',
+          total_aportes: '150.50',
+        },
+      ];
+
+      mockDataSource.query.mockResolvedValue(mockResult);
+
+      // Act
+      const result = await service.findParticipantesConAportes(undefined, idUsuario);
+
+      // Assert
+      expect(mockDataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('AND id_usuario = $1'),
+        [idUsuario],
+      );
+    });
+
+    it('debería filtrar por encuentro y usuario', async () => {
+      // Arrange
+      const idEncuentro = 1;
+      const idUsuario = 2;
+      const mockResult = [
+        {
+          id_encuentro: 1,
+          nombre_encuentro: 'Encuentro Test',
+          id_usuario: 2,
+          nombre_usuario: 'María',
+          apellido_usuario: 'García',
+          rol: 'participante',
+          total_aportes: '250.75',
+        },
+      ];
+
+      mockDataSource.query.mockResolvedValue(mockResult);
+
+      // Act
+      const result = await service.findParticipantesConAportes(idEncuentro, idUsuario);
+
+      // Assert
+      expect(mockDataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('AND id_encuentro = $1'),
+        expect.arrayContaining([idEncuentro, idUsuario]),
+      );
     });
   });
 });
