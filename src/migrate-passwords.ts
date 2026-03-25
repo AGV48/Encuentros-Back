@@ -38,7 +38,7 @@ async function migratePasswords() {
       const plainPassword = user.CONTRASENA;
 
       // Verificar si la contraseña ya está hasheada (bcrypt hash comienza con $2)
-      if (plainPassword && plainPassword.startsWith('$2')) {
+      if (plainPassword?.startsWith('$2')) {
         console.log(`⏭️  Usuario ${email} ya tiene contraseña cifrada, omitiendo...`);
         skippedCount++;
         continue;
@@ -72,12 +72,13 @@ async function migratePasswords() {
 }
 
 // Ejecutar la migración
-migratePasswords()
-  .then(() => {
+(async () => {
+  try {
+    await migratePasswords();
     console.log('🎉 Proceso finalizado');
     process.exit(0);
-  })
-  .catch((error) => {
+  } catch (error) {
     console.error('💥 Error fatal:', error);
     process.exit(1);
-  });
+  }
+})();

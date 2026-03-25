@@ -2,7 +2,7 @@ import { Controller, Post, Body, BadRequestException, Get, Query, HttpException,
 import { UsersService } from './users.service';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ApiTags } from '@nestjs/swagger';
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -17,64 +17,12 @@ export class UsersController {
     try {
       const results = await this.usersService.searchByName(q || '');
 
-      // if currentUser provided, annotate each user with friendship/pending info
-      if (currentUser) {
-        const cur = Number(currentUser);
-        const annotated = [] as any[];
-        for (const u of results) {
-          const otherId = (u as any).id ?? (u as any).ID_USUARIO ?? (u as any).ID_USUARIO;
-
-          // check friendship existence in amistades
-          let isFriend = false;
-          try {
-            const friendSql = `
-              SELECT COUNT(*) as cnt FROM amistades a
-              WHERE (a.usuario1 = $1 AND a.usuario2 = $2) OR (a.usuario1 = $3 AND a.usuario2 = $4)
-            `;
-            const friendRes = await this.dataSource.query(friendSql, [cur, Number(otherId), Number(otherId), cur]);
-            isFriend = friendRes && friendRes[0] && Number(friendRes[0].cnt ?? friendRes[0].count ?? 0) > 0;
-          } catch (e) {
-            // If amistades doesn't exist or query fails, fallback to false and log for debugging
-            console.warn('Could not check amistades table for friendship status', e && e.message ? e.message : e);
-            isFriend = false;
-          }
-
-          // check pending request sent by current user to other
-          const pendingFromSql = `
-            SELECT COUNT(*) as cnt FROM relaciones_amistades ra
-            JOIN solicitudes_amistad sa ON sa.id_relacion_amistad = ra.id_relacion_amistad
-            WHERE ra.id_usuario = $1 AND sa.id_destinatario = $2 AND ra.estado = 'pendiente'
-          `;
-          let pendingRequestFromMe = false;
-          try {
-            const pendingFromRes = await this.dataSource.query(pendingFromSql, [cur, Number(otherId)]);
-            pendingRequestFromMe = pendingFromRes && pendingFromRes[0] && Number(pendingFromRes[0].cnt ?? pendingFromRes[0].count ?? 0) > 0;
-          } catch (e) {
-            console.warn('Could not check pending requests (from) for search annotation', e && e.message ? e.message : e);
-            pendingRequestFromMe = false;
-          }
-
-          // check pending request sent by other to current user
-          const pendingToSql = `
-            SELECT COUNT(*) as cnt FROM relaciones_amistades ra
-            JOIN solicitudes_amistad sa ON sa.id_relacion_amistad = ra.id_relacion_amistad
-            WHERE ra.id_usuario = $1 AND sa.id_destinatario = $2 AND ra.estado = 'pendiente'
-          `;
-          let pendingRequestToMe = false;
-          try {
-            const pendingToRes = await this.dataSource.query(pendingToSql, [Number(otherId), cur]);
-            pendingRequestToMe = pendingToRes && pendingToRes[0] && Number(pendingToRes[0].cnt ?? pendingToRes[0].count ?? 0) > 0;
-          } catch (e) {
-            console.warn('Could not check pending requests (to) for search annotation', e && e.message ? e.message : e);
-            pendingRequestToMe = false;
-          }
-
-          annotated.push({ ...u, isFriend, pendingRequestFromMe, pendingRequestToMe });
-        }
-        return { success: true, results: annotated };
+      if (!currentUser) {
+        return { success: true, results };
       }
 
-      return { success: true, results };
+      const annotatedResults = await this.usersService.annotateSearchResults(results, Number(currentUser));
+      return { success: true, results: annotatedResults };
     } catch (error) {
       console.error('Error en search_user', error);
       throw new HttpException('Error buscando usuarios', 500);
