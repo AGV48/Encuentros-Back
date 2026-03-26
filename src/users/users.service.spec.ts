@@ -345,4 +345,159 @@ describe('UsersService', () => {
       });
     });
   });
+
+  describe('annotateSearchResults', () => {
+    it('debería anotar resultados de búsqueda con información de amistad', async () => {
+      // Arrange
+      const currentUserId = 1;
+      const results = [
+        { id: 2, nombre: 'John', apellido: 'Doe', email: 'john@test.com', imagenPerfil: null },
+      ];
+
+      // Cada llamada a query retorna un resultado diferente
+      mockDataSource.query
+        .mockResolvedValueOnce([{ cnt: 1 }]) // checkFriendship - isFriend true
+        .mockResolvedValueOnce([{ cnt: 0 }]) // checkPendingRequestFromMe
+        .mockResolvedValueOnce([{ cnt: 0 }]); // checkPendingRequestToMe
+
+      // Act
+      const result = await service.annotateSearchResults(results, currentUserId);
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        ...results[0],
+        isFriend: true,
+        pendingRequestFromMe: false,
+        pendingRequestToMe: false,
+      });
+    });
+
+    it('debería retornar false para todas las propiedades si hay error en las consultas', async () => {
+      // Arrange
+      const currentUserId = 1;
+      const results = [
+        { id: 2, nombre: 'John', apellido: 'Doe', email: 'john@test.com', imagenPerfil: null },
+      ];
+
+      mockDataSource.query
+        .mockRejectedValueOnce(new Error('Database error'))
+        .mockRejectedValueOnce(new Error('Database error'))
+        .mockRejectedValueOnce(new Error('Database error'));
+
+      // Act
+      const result = await service.annotateSearchResults(results, currentUserId);
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0].isFriend).toBe(false);
+      expect(result[0].pendingRequestFromMe).toBe(false);
+      expect(result[0].pendingRequestToMe).toBe(false);
+    });
+  });
+
+  describe('createFriendRequest', () => {
+    it('debería crear una nueva solicitud de amistad cuando no son amigos y no hay solicitud cruzada', async () => {
+      // Arrange
+      const from = 1;
+      const to = 2;
+      
+      // checkFriendshipForRequest
+      mockDataSource.query.mockResolvedValueOnce([{ cnt: 0 }]); // No son amigos
+      
+      // checkAndAcceptReversePendingRequest - busca solicitud cruzada
+      mockDataSource.query.mockResolvedValueOnce([]); // No hay solicitud cruzada pendiente
+
+      const mockQueryRunner = {
+        connect: jest.fn(),
+        startTransaction: jest.fn(),
+        query: jest.fn()
+          .mockResolvedValueOnce([{ id_relacion_amistad: 5 }]) // INSERT relaciones_amistades
+          .mockResolvedValueOnce(undefined), // INSERT solicitudes_amistad
+        commitTransaction: jest.fn(),
+        rollbackTransaction: jest.fn(),
+        release: jest.fn(),
+      };
+
+      mockDataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
+
+      // Act
+      const result = await service.createFriendRequest(from, to);
+
+      // Assert
+      expect(result).toEqual({ success: true, message: 'Solicitud enviada' });
+      expect(mockQueryRunner.startTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+    });
+
+    it('debería lanzar error si ya son amigos', async () => {
+      // Arrange
+      const from = 1;
+      const to = 2;
+      mockDataSource.query.mockResolvedValue([{ cnt: 1 }]); // Ya son amigos
+
+      // Act & Assert
+      await expect(service.createFriendRequest(from, to)).rejects.toThrow('Ya son amigos');
+    });
+
+    it('debería aceptar automáticamente solicitud cruzada pendiente', async () => {
+      // Arrange
+      const from = 1;
+      const to = 2;
+      
+      // checkFriendshipForRequest
+      mockDataSource.query.mockResolvedValueOnce([{ cnt: 0 }]); // No son amigos
+      
+      // checkAndAcceptReversePendingRequest - busca solicitud cruzada
+      mockDataSource.query.mockResolvedValueOnce([{ id_relacion: 5 }]); // Existe solicitud cruzada
+
+      const mockQueryRunner = {
+        connect: jest.fn(),
+        startTransaction: jest.fn(),
+        query: jest.fn()
+          .mockResolvedValueOnce(undefined) // UPDATE relaciones_amistades
+          .mockResolvedValueOnce(undefined), // INSERT amistades
+        commitTransaction: jest.fn(),
+        rollbackTransaction: jest.fn(),
+        release: jest.fn(),
+      };
+
+      mockDataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
+
+      // Act
+      const result = await service.createFriendRequest(from, to);
+
+      // Assert
+      expect(result.accepted).toBe(true);
+      expect(result.message).toContain('amistad aceptada automáticamente');
+    });
+
+    it('debería rollback si falla la transacción de nueva solicitud', async () => {
+      // Arrange
+      const from = 1;
+      const to = 2;
+      
+      // checkFriendshipForRequest
+      mockDataSource.query.mockResolvedValueOnce([{ cnt: 0 }]);
+      
+      // checkAndAcceptReversePendingRequest
+      mockDataSource.query.mockResolvedValueOnce([]);
+
+      const mockQueryRunner = {
+        connect: jest.fn(),
+        startTransaction: jest.fn(),
+        query: jest.fn().mockRejectedValue(new Error('DB error')),
+        commitTransaction: jest.fn(),
+        rollbackTransaction: jest.fn(),
+        release: jest.fn(),
+      };
+
+      mockDataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
+
+      // Act & Assert
+      await expect(service.createFriendRequest(from, to)).rejects.toThrow('DB error');
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
+    });
+  });
 });
