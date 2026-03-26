@@ -55,7 +55,7 @@ describe('AuthService', () => {
       mockUsersService.create.mockResolvedValue({ id: 1, email: 't@t.c', contrasena: 'hashedPass' });
       mockJwtService.sign.mockReturnValue('token_123');
 
-      const registerDto = { email: 't@t.c', contrasena: 'pass', nombre: 'A', apellido: 'B', imagenPerfil: null };
+      const registerDto = { email: 't@t.c', contrasena: 'pass', nombre: 'A', apellido: 'B', imagenPerfil: "" };
       const result = await service.register(registerDto);
 
       expect(mockUsersService.create).toHaveBeenCalledWith({ ...registerDto, contrasena: 'hashedPass' });

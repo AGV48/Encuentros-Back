@@ -102,6 +102,36 @@ describe('BolsilloService', () => {
       mockBolsilloRepository.find.mockResolvedValue(mockBolsillos);
       const result = await service.findByEncuentro(idEncuentro);
       expect(result).toEqual(mockBolsillos);
+      expect(mockBolsilloRepository.find).toHaveBeenCalledWith({
+        where: { idEncuentro },
+        relations: ['presupuesto', 'encuentro'],
+      });
+    });
+
+    it('debería retornar lista vacía si no hay bolsillos para el encuentro', async () => {
+      mockBolsilloRepository.find.mockResolvedValue([]);
+      const result = await service.findByEncuentro(999);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('findByPresupuesto', () => {
+    it('debería obtener bolsillos por ID de presupuesto', async () => {
+      const idPresupuesto = 1;
+      const mockBolsillos = [{ id: 1, idPresupuesto }];
+      mockBolsilloRepository.find.mockResolvedValue(mockBolsillos);
+      const result = await service.findByPresupuesto(idPresupuesto);
+      expect(result).toEqual(mockBolsillos);
+      expect(mockBolsilloRepository.find).toHaveBeenCalledWith({
+        where: { idPresupuesto },
+        relations: ['presupuesto', 'encuentro'],
+      });
+    });
+
+    it('debería retornar lista vacía si no hay bolsillos para el presupuesto', async () => {
+      mockBolsilloRepository.find.mockResolvedValue([]);
+      const result = await service.findByPresupuesto(999);
+      expect(result).toEqual([]);
     });
   });
 

@@ -114,6 +114,34 @@ describe('AporteService', () => {
     });
   });
 
+  describe('findByBolsillo', () => {
+    it('debería obtener aportes por ID de bolsillo', async () => {
+      const idBolsillo = 1;
+      const mockAportes = [{ id: 1, idBolsillo }];
+      mockAporteRepository.find.mockResolvedValue(mockAportes);
+      const result = await service.findByBolsillo(idBolsillo);
+      expect(result).toEqual(mockAportes);
+      expect(mockAporteRepository.find).toHaveBeenCalledWith({
+        where: { idBolsillo },
+        relations: ['usuario', 'encuentro'],
+      });
+    });
+  });
+
+  describe('findByUsuario', () => {
+    it('debería obtener aportes por ID de usuario', async () => {
+      const idUsuario = 1;
+      const mockAportes = [{ id: 1, idUsuario }];
+      mockAporteRepository.find.mockResolvedValue(mockAportes);
+      const result = await service.findByUsuario(idUsuario);
+      expect(result).toEqual(mockAportes);
+      expect(mockAporteRepository.find).toHaveBeenCalledWith({
+        where: { idUsuario },
+        relations: ['bolsillo', 'encuentro'],
+      });
+    });
+  });
+
   describe('findOne', () => {
     it('debería obtener un aporte por ID', async () => {
       const mockAporte = { id: 1 };
