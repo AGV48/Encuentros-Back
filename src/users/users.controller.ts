@@ -2,7 +2,7 @@ import { Controller, Post, Body, BadRequestException, Get, Query, HttpException,
 import { UsersService } from './users.service';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ApiTags } from '@nestjs/swagger';
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -10,71 +10,19 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @Controller('users')
 @UseGuards(JwtAuthGuard) // Protege todos los endpoints de usuarios
 export class UsersController {
-  constructor(private readonly usersService: UsersService, private dataSource: DataSource) {}
+  constructor(private readonly usersService: UsersService, private readonly dataSource: DataSource) {}
 
   @Get('search_user')
   async searchUser(@Query('q') q: string, @Query('currentUser') currentUser?: string) {
     try {
       const results = await this.usersService.searchByName(q || '');
 
-      // if currentUser provided, annotate each user with friendship/pending info
-      if (currentUser) {
-        const cur = Number(currentUser);
-        const annotated = [] as any[];
-        for (const u of results) {
-          const otherId = (u as any).id ?? (u as any).ID_USUARIO ?? (u as any).ID_USUARIO;
-
-          // check friendship existence in amistades
-          let isFriend = false;
-          try {
-            const friendSql = `
-              SELECT COUNT(*) as cnt FROM amistades a
-              WHERE (a.usuario1 = $1 AND a.usuario2 = $2) OR (a.usuario1 = $3 AND a.usuario2 = $4)
-            `;
-            const friendRes = await this.dataSource.query(friendSql, [cur, Number(otherId), Number(otherId), cur]);
-            isFriend = friendRes && friendRes[0] && Number(friendRes[0].cnt ?? friendRes[0].count ?? 0) > 0;
-          } catch (e) {
-            // If amistades doesn't exist or query fails, fallback to false and log for debugging
-            console.warn('Could not check amistades table for friendship status', e && e.message ? e.message : e);
-            isFriend = false;
-          }
-
-          // check pending request sent by current user to other
-          const pendingFromSql = `
-            SELECT COUNT(*) as cnt FROM relaciones_amistades ra
-            JOIN solicitudes_amistad sa ON sa.id_relacion_amistad = ra.id_relacion_amistad
-            WHERE ra.id_usuario = $1 AND sa.id_destinatario = $2 AND ra.estado = 'pendiente'
-          `;
-          let pendingRequestFromMe = false;
-          try {
-            const pendingFromRes = await this.dataSource.query(pendingFromSql, [cur, Number(otherId)]);
-            pendingRequestFromMe = pendingFromRes && pendingFromRes[0] && Number(pendingFromRes[0].cnt ?? pendingFromRes[0].count ?? 0) > 0;
-          } catch (e) {
-            console.warn('Could not check pending requests (from) for search annotation', e && e.message ? e.message : e);
-            pendingRequestFromMe = false;
-          }
-
-          // check pending request sent by other to current user
-          const pendingToSql = `
-            SELECT COUNT(*) as cnt FROM relaciones_amistades ra
-            JOIN solicitudes_amistad sa ON sa.id_relacion_amistad = ra.id_relacion_amistad
-            WHERE ra.id_usuario = $1 AND sa.id_destinatario = $2 AND ra.estado = 'pendiente'
-          `;
-          let pendingRequestToMe = false;
-          try {
-            const pendingToRes = await this.dataSource.query(pendingToSql, [Number(otherId), cur]);
-            pendingRequestToMe = pendingToRes && pendingToRes[0] && Number(pendingToRes[0].cnt ?? pendingToRes[0].count ?? 0) > 0;
-          } catch (e) {
-            console.warn('Could not check pending requests (to) for search annotation', e && e.message ? e.message : e);
-            pendingRequestToMe = false;
-          }
-
-          annotated.push({ ...u, isFriend, pendingRequestFromMe, pendingRequestToMe });
-        }
-        return { success: true, results: annotated };
+      if (!currentUser) {
+        return { success: true, results };
       }
 
-      return { success: true, results };
+      const annotatedResults = await this.usersService.annotateSearchResults(results, Number(currentUser));
+      return { success: true, results: annotatedResults };
     } catch (error) {
       console.error('Error en search_user', error);
       throw new HttpException('Error buscando usuarios', 500);
@@ -89,101 +37,12 @@ export class UsersController {
     }
 
     try {
-      // Antes de crear la solicitud, verificar si ya existen como amigos
-      try {
-        const friendCheckSql = `
-          SELECT COUNT(*) as cnt FROM amistades a
-          WHERE (a.usuario1 = $1 AND a.usuario2 = $2) OR (a.usuario1 = $3 AND a.usuario2 = $4)
-        `;
-        const friendCheck = await this.dataSource.query(friendCheckSql, [from, to, to, from]);
-        const isFriend = friendCheck && friendCheck[0] && Number(friendCheck[0].cnt ?? friendCheck[0].count ?? 0) > 0;
-        if (isFriend) {
-          throw new HttpException('Ya son amigos', 400);
-        }
-      } catch (e) {
-        // Si la tabla amistades no existe o falla la consulta, no bloquear la creación
-        // pero se registra la advertencia para debugging
-        if (e instanceof HttpException) throw e;
-        console.warn('amistades check failed; continuing to create request if allowed', e && e.message ? e.message : e);
-      }
+      const result = await this.usersService.createFriendRequest(from, to);
+      return result;
+    } catch (error: any) {
+      console.error('Error creando solicitud de amistad', error);
+      const msg = error?.message || error?.error || JSON.stringify(error) || 'Error desconocido';
 
-      // Verificar si existe una solicitud pendiente en sentido inverso (to -> from).
-      try {
-        const reverseSql = `
-          SELECT ra.id_relacion_amistad as id_relacion
-          FROM relaciones_amistades ra
-          JOIN solicitudes_amistad sa ON sa.id_relacion_amistad = ra.id_relacion_amistad
-          WHERE ra.id_usuario = $1 AND sa.id_destinatario = $2 AND ra.estado = 'pendiente'
-        `;
-        const reverseRows = await this.dataSource.query(reverseSql, [to, from]);
-        if (reverseRows && reverseRows[0]) {
-          // Hay una solicitud inversa pendiente: aceptar esa solicitud automáticamente para evitar duplicados
-          const reverseId = reverseRows[0].id_relacion ?? reverseRows[0].id_relacion_amistad;
-          
-          // Aceptar la solicitud creando la amistad
-          const queryRunner = this.dataSource.createQueryRunner();
-          await queryRunner.connect();
-          await queryRunner.startTransaction();
-
-          try {
-            // Actualizar estado de la relación
-            await queryRunner.query(
-              `UPDATE relaciones_amistades SET estado = 'aceptada', fecha_aceptacion_amistad = CURRENT_TIMESTAMP WHERE id_relacion_amistad = $1`,
-              [Number(reverseId)]
-            );
-
-            // Crear amistad
-            await queryRunner.query(
-              `INSERT INTO amistades (id_relacion_amistad, usuario1, usuario2, fecha_amistad) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
-              [Number(reverseId), to, from]
-            );
-
-            await queryRunner.commitTransaction();
-            return { success: true, message: 'Solicitud cruzada detectada: amistad aceptada automáticamente' };
-          } catch (error) {
-            await queryRunner.rollbackTransaction();
-            throw error;
-          } finally {
-            await queryRunner.release();
-          }
-        }
-      } catch (e) {
-        if (e instanceof HttpException) throw e;
-        console.warn('Reverse pending check failed; proceeding to create request', e && e.message ? e.message : e);
-      }
-
-      // Crear nueva solicitud
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-      await queryRunner.startTransaction();
-
-      try {
-        // Insertar en relaciones_amistades
-        const relResult = await queryRunner.query(
-          `INSERT INTO relaciones_amistades (id_usuario, estado, fecha_solicitud_amistad) VALUES ($1, 'pendiente', CURRENT_TIMESTAMP) RETURNING id_relacion_amistad`,
-          [from]
-        );
-        const idRelacion = relResult[0].id_relacion_amistad;
-
-        // Insertar en solicitudes_amistad
-        await queryRunner.query(
-          `INSERT INTO solicitudes_amistad (id_relacion_amistad, id_remitente, id_destinatario) VALUES ($1, $2, $3)`,
-          [idRelacion, from, to]
-        );
-
-        await queryRunner.commitTransaction();
-        return { success: true, message: 'Solicitud enviada' };
-      } catch (error) {
-        await queryRunner.rollbackTransaction();
-        throw error;
-      } finally {
-        await queryRunner.release();
-      }
-    } catch (err: any) {
-      console.error('Error creando solicitud de amistad', err);
-      // Si Oracle devolvió un error RAISE_APPLICATION_ERROR con código -20002/-20003/-20001,
-      // el mensaje llega en err.message o err.error. Hacemos un match simple.
-      const msg = (err && (err.message || err.error || JSON.stringify(err))) || 'Error desconocido';
       if (msg.includes('-20002')) {
         throw new HttpException('El usuario al que le va a enviar una solicitud ya le ha enviado una a usted.', 400);
       }
@@ -193,6 +52,10 @@ export class UsersController {
       if (msg.includes('-20001')) {
         throw new HttpException('Error al crear la solicitud de amistad.', 500);
       }
+      if (msg.includes('Ya son amigos')) {
+        throw new HttpException(msg, 400);
+      }
+
       throw new HttpException(msg, 500);
     }
   }
@@ -250,14 +113,14 @@ export class UsersController {
         WHERE ra.id_relacion_amistad = $1
       `;
       const relRows = await this.dataSource.query(relSql, [id_relacion_amistad]);
-      if (!relRows || !relRows[0]) {
+      if (!relRows?.[0]) {
         throw new HttpException('No se encontró la relación de amistad', 404);
       }
       const usuario_origen = Number(relRows[0].usuario_origen ?? relRows[0].id_usuario);
 
       const destSql = `SELECT sa.id_destinatario as usuario_destino FROM solicitudes_amistad sa WHERE sa.id_relacion_amistad = $1`;
       const destRows = await this.dataSource.query(destSql, [id_relacion_amistad]);
-      if (!destRows || !destRows[0]) {
+      if (!destRows?.[0]) {
         throw new HttpException('No se encontró la solicitud de amistad asociada', 404);
       }
       const usuario_destino = Number(destRows[0].usuario_destino);
@@ -269,7 +132,7 @@ export class UsersController {
           WHERE (a.usuario1 = $1 AND a.usuario2 = $2) OR (a.usuario1 = $3 AND a.usuario2 = $4)
         `;
         const friendCheck = await this.dataSource.query(friendCheckSql, [usuario_origen, usuario_destino, usuario_destino, usuario_origen]);
-        const alreadyFriend = friendCheck && friendCheck[0] && Number(friendCheck[0].cnt ?? friendCheck[0].count ?? 0) > 0;
+        const alreadyFriend = Number(friendCheck?.[0]?.cnt ?? friendCheck?.[0]?.count ?? 0) > 0;
         if (alreadyFriend) {
           // marcar la relación como aceptada (si no lo está) para mantener consistencia
           const updateSql = `UPDATE relaciones_amistades SET estado = 'aceptada', fecha_aceptacion_amistad = CURRENT_TIMESTAMP WHERE id_relacion_amistad = $1`;
@@ -277,7 +140,7 @@ export class UsersController {
           return { success: true, message: 'Ya son amigos' };
         }
       } catch (e) {
-        console.warn('amistades check failed during accept; proceeding', e && e.message ? e.message : e);
+        console.warn('amistades check failed during accept; proceeding', e?.message ?? e);
       }
 
       // Aceptar la solicitud usando transacciones
@@ -321,7 +184,7 @@ export class UsersController {
       // Verificar que la solicitud existe y obtener el destinatario
       const solSql = `SELECT sa.id_destinatario as usuario_destino FROM solicitudes_amistad sa WHERE sa.id_relacion_amistad = $1`;
       const solRows = await this.dataSource.query(solSql, [id_relacion_amistad]);
-      if (!solRows || !solRows[0]) {
+      if (!solRows?.[0]) {
         throw new HttpException('No se encontró la solicitud de amistad asociada', 404);
       }
       const usuario_destino = Number(solRows[0].usuario_destino);
@@ -417,7 +280,7 @@ export class UsersController {
   async getFriends(@Query('userId') userId: string) {
     try {
       const userIdNum = Number(userId);
-      if (isNaN(userIdNum)) {
+      if (Number.isNaN(userIdNum)) {
         throw new BadRequestException('userId debe ser un número válido');
       }
 

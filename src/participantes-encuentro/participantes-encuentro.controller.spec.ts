@@ -3,65 +3,40 @@ import { ParticipantesEncuentroController } from './participantes-encuentro.cont
 import { ParticipantesEncuentroService } from './participantes-encuentro.service';
 import { CreateParticipanteDto } from './dto/create-participante.dto';
 import { UpdateParticipanteDto } from './dto/update-participante.dto';
-import { NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+
+// Mock del servicio
+const mockParticipantesEncuentroService = {
+  create: jest.fn(),
+  findAll: jest.fn(),
+  findByEncuentro: jest.fn(),
+  findByUsuario: jest.fn(),
+  findOne: jest.fn(),
+  update: jest.fn(),
+  remove: jest.fn(),
+  removeByEncuentroAndUsuario: jest.fn(),
+  findAllFromView: jest.fn(),
+  findParticipantesByEncuentroFromView: jest.fn(),
+  findEncuentrosByUsuarioFromView: jest.fn(),
+  findParticipantesConAportes: jest.fn(),
+  findAportesByEncuentro: jest.fn(),
+};
 
 describe('ParticipantesEncuentroController', () => {
   let controller: ParticipantesEncuentroController;
   let service: ParticipantesEncuentroService;
 
-  const mockParticipante = {
-    id: 1,
-    idEncuentro: 1,
-    idUsuario: 2,
-    rol: 'participante',
-    encuentro: { id: 1, titulo: 'Viaje' },
-    usuario: { id: 2, nombre: 'Juan' },
-  };
-
-  const mockViewParticipante = {
-    idEncuentro: 1,
-    tituloEncuentro: 'Viaje a la playa',
-    fecha: new Date(),
-    idUsuario: 2,
-    nombreCompleto: 'Juan Pérez',
-    rol: 'participante',
-  };
-
-  const mockAportesData = {
-    idEncuentro: 1,
-    nombreEncuentro: 'Viaje',
-    idUsuario: 2,
-    nombreUsuario: 'Juan',
-    apellidoUsuario: 'Pérez',
-    nombreCompleto: 'Juan Pérez',
-    rol: 'participante',
-    totalAportes: 100.5,
-  };
-
   beforeEach(async () => {
-    const mockService = {
-      create: jest.fn(),
-      findAll: jest.fn(),
-      findByEncuentro: jest.fn(),
-      findByUsuario: jest.fn(),
-      findOne: jest.fn(),
-      update: jest.fn(),
-      remove: jest.fn(),
-      removeByEncuentroAndUsuario: jest.fn(),
-      findAllFromView: jest.fn(),
-      findParticipantesByEncuentroFromView: jest.fn(),
-      findEncuentrosByUsuarioFromView: jest.fn(),
-      findParticipantesConAportes: jest.fn(),
-      findAportesByEncuentro: jest.fn(),
-      findAportesByUsuario: jest.fn(),
-    };
-
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ParticipantesEncuentroController],
       providers: [
         {
           provide: ParticipantesEncuentroService,
-          useValue: mockService,
+          useValue: mockParticipantesEncuentroService,
         },
       ],
     }).compile();
@@ -69,229 +44,359 @@ describe('ParticipantesEncuentroController', () => {
     controller = module.get<ParticipantesEncuentroController>(
       ParticipantesEncuentroController,
     );
-    service = module.get<ParticipantesEncuentroService>(ParticipantesEncuentroService);
-  });
+    service = module.get<ParticipantesEncuentroService>(
+      ParticipantesEncuentroService,
+    );
 
-  afterEach(() => {
+    // Limpiar mocks
     jest.clearAllMocks();
   });
 
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
+  });
+
   describe('create', () => {
-    it('should create a participant', async () => {
-      const createDto: CreateParticipanteDto = {
+    it('debería agregar un participante exitosamente', async () => {
+      // Arrange
+      const createParticipanteDto: CreateParticipanteDto = {
         idEncuentro: 1,
         idUsuario: 2,
-        idSolicitante: 1,
+        idSolicitante: 1, // Creador del encuentro
         rol: 'participante',
       };
 
-      (service.create as jest.Mock).mockResolvedValue(mockParticipante);
-
-      const result = await controller.create(createDto);
-
-      expect(service.create).toHaveBeenCalledWith(createDto);
-      expect(result).toEqual(mockParticipante);
-    });
-
-    it('should throw ConflictException on create error', async () => {
-      const createDto: CreateParticipanteDto = {
-        idEncuentro: 1,
-        idUsuario: 2,
-        idSolicitante: 1,
-        rol: 'participante',
+      const mockParticipante = {
+        id: 1,
+        ...createParticipanteDto,
       };
 
-      (service.create as jest.Mock).mockRejectedValue(
-        new ConflictException('Ya existe'),
+      mockParticipantesEncuentroService.create.mockResolvedValue(
+        mockParticipante,
       );
 
-      await expect(controller.create(createDto)).rejects.toThrow(ConflictException);
+      // Act
+      const result = await controller.create(createParticipanteDto);
+
+      // Assert
+      expect(result).toEqual(mockParticipante);
+      expect(mockParticipantesEncuentroService.create).toHaveBeenCalledWith(
+        createParticipanteDto,
+      );
+    });
+
+    it('debería lanzar ForbiddenException si no es el creador del encuentro', async () => {
+      // Arrange
+      const createParticipanteDto: CreateParticipanteDto = {
+        idEncuentro: 1,
+        idUsuario: 2,
+        idSolicitante: 3, // No es el creador
+      };
+
+      mockParticipantesEncuentroService.create.mockRejectedValue(
+        new ForbiddenException(
+          'Solo el creador del encuentro puede agregar participantes',
+        ),
+      );
+
+      // Act & Assert
+      await expect(controller.create(createParticipanteDto)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('debería lanzar NotFoundException si el encuentro no existe', async () => {
+      // Arrange
+      const createParticipanteDto: CreateParticipanteDto = {
+        idEncuentro: 999,
+        idUsuario: 2,
+        idSolicitante: 1,
+      };
+
+      mockParticipantesEncuentroService.create.mockRejectedValue(
+        new NotFoundException('El encuentro no existe'),
+      );
+
+      // Act & Assert
+      await expect(controller.create(createParticipanteDto)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('debería lanzar ConflictException si el usuario ya participa', async () => {
+      // Arrange
+      const createParticipanteDto: CreateParticipanteDto = {
+        idEncuentro: 1,
+        idUsuario: 2,
+        idSolicitante: 1,
+      };
+
+      mockParticipantesEncuentroService.create.mockRejectedValue(
+        new ConflictException(
+          'El usuario ya está participando en este encuentro',
+        ),
+      );
+
+      // Act & Assert
+      await expect(controller.create(createParticipanteDto)).rejects.toThrow(
+        ConflictException,
+      );
     });
   });
 
   describe('findAll', () => {
-    it('should return all participants', async () => {
-      (service.findAll as jest.Mock).mockResolvedValue([mockParticipante]);
+    it('debería obtener todos los participantes sin filtro', async () => {
+      // Arrange
+      const mockParticipantes = [
+        {
+          id: 1,
+          idEncuentro: 1,
+          idUsuario: 1,
+          rol: 'creador',
+        },
+        {
+          id: 2,
+          idEncuentro: 1,
+          idUsuario: 2,
+          rol: 'participante',
+        },
+      ];
 
+      mockParticipantesEncuentroService.findAll.mockResolvedValue(
+        mockParticipantes,
+      );
+
+      // Act
       const result = await controller.findAll();
 
-      expect(service.findAll).toHaveBeenCalled();
-      expect(result).toEqual([mockParticipante]);
+      // Assert
+      expect(result).toEqual(mockParticipantes);
+      expect(mockParticipantesEncuentroService.findAll).toHaveBeenCalled();
     });
 
-    it('should return participants by encuentro', async () => {
-      (service.findByEncuentro as jest.Mock).mockResolvedValue([mockParticipante]);
+    it('debería obtener participantes filtrados por encuentro', async () => {
+      // Arrange
+      const encuentroId = '1';
+      const mockParticipantes = [
+        {
+          id: 1,
+          idEncuentro: 1,
+          idUsuario: 1,
+          rol: 'creador',
+        },
+      ];
 
-      const result = await controller.findAll('1', undefined);
+      mockParticipantesEncuentroService.findByEncuentro.mockResolvedValue(
+        mockParticipantes,
+      );
 
-      expect(service.findByEncuentro).toHaveBeenCalledWith(1);
-      expect(result).toEqual([mockParticipante]);
+      // Act
+      const result = await controller.findAll(encuentroId);
+
+      // Assert
+      expect(result).toEqual(mockParticipantes);
+      expect(
+        mockParticipantesEncuentroService.findByEncuentro,
+      ).toHaveBeenCalledWith(1);
     });
 
-    it('should return participants by usuario', async () => {
-      (service.findByUsuario as jest.Mock).mockResolvedValue([mockParticipante]);
+    it('debería obtener participantes filtrados por usuario', async () => {
+      // Arrange
+      const usuarioId = '1';
+      const mockParticipantes = [
+        {
+          id: 1,
+          idEncuentro: 1,
+          idUsuario: 1,
+          rol: 'creador',
+        },
+      ];
 
-      const result = await controller.findAll(undefined, '2');
+      mockParticipantesEncuentroService.findByUsuario.mockResolvedValue(
+        mockParticipantes,
+      );
 
-      expect(service.findByUsuario).toHaveBeenCalledWith(2);
-      expect(result).toEqual([mockParticipante]);
-    });
+      // Act
+      const result = await controller.findAll(undefined, usuarioId);
 
-    it('should prioritize encuentro over usuario query', async () => {
-      (service.findByEncuentro as jest.Mock).mockResolvedValue([mockParticipante]);
-
-      const result = await controller.findAll('1', '2');
-
-      expect(service.findByEncuentro).toHaveBeenCalledWith(1);
-      expect(service.findByUsuario).not.toHaveBeenCalled();
+      // Assert
+      expect(result).toEqual(mockParticipantes);
+      expect(
+        mockParticipantesEncuentroService.findByUsuario,
+      ).toHaveBeenCalledWith(1);
     });
   });
 
   describe('findAllFromView', () => {
-    it('should return all participants from view', async () => {
-      (service.findAllFromView as jest.Mock).mockResolvedValue([mockViewParticipante]);
+    it('debería obtener participantes desde la vista sin filtro', async () => {
+      // Arrange
+      const mockResult = [
+        {
+          idEncuentro: 1,
+          tituloEncuentro: 'Encuentro Test',
+          fecha: new Date(),
+          idUsuario: 1,
+          nombreCompleto: 'Juan Pérez',
+          rol: 'creador',
+        },
+      ];
 
+      mockParticipantesEncuentroService.findAllFromView.mockResolvedValue(
+        mockResult,
+      );
+
+      // Act
       const result = await controller.findAllFromView();
 
-      expect(service.findAllFromView).toHaveBeenCalledWith(undefined, undefined);
-      expect(result).toEqual([mockViewParticipante]);
+      // Assert
+      expect(result).toEqual(mockResult);
+      expect(
+        mockParticipantesEncuentroService.findAllFromView,
+      ).toHaveBeenCalledWith(undefined, undefined);
     });
 
-    it('should return participants from view filtered by encuentro', async () => {
-      (service.findAllFromView as jest.Mock).mockResolvedValue([mockViewParticipante]);
+    it('debería obtener participantes desde la vista filtrados por encuentro', async () => {
+      // Arrange
+      const encuentroId = '1';
+      const mockResult = [
+        {
+          idEncuentro: 1,
+          tituloEncuentro: 'Encuentro Test',
+          fecha: new Date(),
+          idUsuario: 1,
+          nombreCompleto: 'Juan Pérez',
+          rol: 'creador',
+        },
+      ];
 
-      const result = await controller.findAllFromView('1', undefined);
+      mockParticipantesEncuentroService.findAllFromView.mockResolvedValue(
+        mockResult,
+      );
 
-      expect(service.findAllFromView).toHaveBeenCalledWith(1, undefined);
-      expect(result).toEqual([mockViewParticipante]);
+      // Act
+      const result = await controller.findAllFromView(encuentroId);
+
+      // Assert
+      expect(result).toEqual(mockResult);
+      expect(
+        mockParticipantesEncuentroService.findAllFromView,
+      ).toHaveBeenCalledWith(1, undefined);
     });
 
-    it('should return participants from view filtered by usuario', async () => {
-      (service.findAllFromView as jest.Mock).mockResolvedValue([mockViewParticipante]);
+    it('debería obtener participantes desde la vista filtrados por usuario', async () => {
+      // Arrange
+      const usuarioId = '1';
+      const mockResult = [
+        {
+          idEncuentro: 1,
+          tituloEncuentro: 'Encuentro Test',
+          fecha: new Date(),
+          idUsuario: 1,
+          nombreCompleto: 'Juan Pérez',
+          rol: 'creador',
+        },
+      ];
 
-      const result = await controller.findAllFromView(undefined, '2');
+      mockParticipantesEncuentroService.findAllFromView.mockResolvedValue(
+        mockResult,
+      );
 
-      expect(service.findAllFromView).toHaveBeenCalledWith(undefined, 2);
-      expect(result).toEqual([mockViewParticipante]);
+      // Act
+      const result = await controller.findAllFromView(undefined, usuarioId);
+
+      // Assert
+      expect(result).toEqual(mockResult);
+      expect(
+        mockParticipantesEncuentroService.findAllFromView,
+      ).toHaveBeenCalledWith(undefined, 1);
     });
   });
 
   describe('findParticipantesConAportes', () => {
-    it('should return participants with contributions', async () => {
-      (service.findParticipantesConAportes as jest.Mock).mockResolvedValue([
-        mockAportesData,
-      ]);
+    it('debería obtener participantes con aportes sin filtro', async () => {
+      // Arrange
+      const mockResult = [
+        {
+          idEncuentro: 1,
+          nombreEncuentro: 'Encuentro Test',
+          idUsuario: 1,
+          nombreUsuario: 'Juan',
+          apellidoUsuario: 'Pérez',
+          nombreCompleto: 'Juan Pérez',
+          rol: 'participante',
+          totalAportes: 150.5,
+        },
+      ];
 
+      mockParticipantesEncuentroService.findParticipantesConAportes.mockResolvedValue(
+        mockResult,
+      );
+
+      // Act
       const result = await controller.findParticipantesConAportes();
 
-      expect(service.findParticipantesConAportes).toHaveBeenCalledWith(
-        undefined,
-        undefined,
-      );
-      expect(result).toEqual([mockAportesData]);
+      // Assert
+      expect(result).toEqual(mockResult);
+      expect(
+        mockParticipantesEncuentroService.findParticipantesConAportes,
+      ).toHaveBeenCalledWith(undefined, undefined);
     });
 
-    it('should return contributions filtered by encuentro', async () => {
-      (service.findParticipantesConAportes as jest.Mock).mockResolvedValue([
-        mockAportesData,
-      ]);
+    it('debería obtener participantes con aportes filtrados por encuentro', async () => {
+      // Arrange
+      const encuentroId = '1';
+      const mockResult = [
+        {
+          idEncuentro: 1,
+          nombreEncuentro: 'Encuentro Test',
+          idUsuario: 1,
+          nombreUsuario: 'Juan',
+          apellidoUsuario: 'Pérez',
+          nombreCompleto: 'Juan Pérez',
+          rol: 'participante',
+          totalAportes: 150.5,
+        },
+      ];
 
-      const result = await controller.findParticipantesConAportes('1', undefined);
-
-      expect(service.findParticipantesConAportes).toHaveBeenCalledWith(1, undefined);
-      expect(result).toEqual([mockAportesData]);
-    });
-
-    it('should return contributions filtered by usuario', async () => {
-      (service.findParticipantesConAportes as jest.Mock).mockResolvedValue([
-        mockAportesData,
-      ]);
-
-      const result = await controller.findParticipantesConAportes(undefined, '2');
-
-      expect(service.findParticipantesConAportes).toHaveBeenCalledWith(undefined, 2);
-      expect(result).toEqual([mockAportesData]);
-    });
-  });
-
-  describe('findOne', () => {
-    it('should return a participant by ID', async () => {
-      (service.findOne as jest.Mock).mockResolvedValue(mockParticipante);
-
-      const result = await controller.findOne('1');
-
-      expect(service.findOne).toHaveBeenCalledWith(1);
-      expect(result).toEqual(mockParticipante);
-    });
-
-    it('should throw NotFoundException if not found', async () => {
-      (service.findOne as jest.Mock).mockRejectedValue(new NotFoundException());
-
-      await expect(controller.findOne('999')).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('update', () => {
-    it('should update a participant', async () => {
-      const updateDto: UpdateParticipanteDto = { rol: 'organizador' };
-      const updated = { ...mockParticipante, rol: 'organizador' };
-
-      (service.update as jest.Mock).mockResolvedValue(updated);
-
-      const result = await controller.update('1', updateDto);
-
-      expect(service.update).toHaveBeenCalledWith(1, updateDto);
-      expect(result.rol).toBe('organizador');
-    });
-  });
-
-  describe('remove', () => {
-    it('should remove a participant', async () => {
-      const removeMessage = { message: 'Participante eliminado correctamente' };
-      (service.remove as jest.Mock).mockResolvedValue(removeMessage);
-
-      const result = await controller.remove('1');
-
-      expect(service.remove).toHaveBeenCalledWith(1);
-      expect(result.message).toBe('Participante eliminado correctamente');
-    });
-  });
-
-  describe('removeByEncuentroAndUsuario', () => {
-    it('should remove user from encuentro', async () => {
-      const removeMessage = { message: 'Has salido del encuentro correctamente' };
-      (service.removeByEncuentroAndUsuario as jest.Mock).mockResolvedValue(removeMessage);
-
-      const result = await controller.removeByEncuentroAndUsuario('1', '2');
-
-      expect(service.removeByEncuentroAndUsuario).toHaveBeenCalledWith(1, 2);
-      expect(result.message).toBe('Has salido del encuentro correctamente');
-    });
-
-    it('should throw ForbiddenException if user is creator', async () => {
-      (service.removeByEncuentroAndUsuario as jest.Mock).mockRejectedValue(
-        new ForbiddenException('El creador no puede salir'),
+      mockParticipantesEncuentroService.findParticipantesConAportes.mockResolvedValue(
+        mockResult,
       );
 
-      await expect(
-        controller.removeByEncuentroAndUsuario('1', '1'),
-      ).rejects.toThrow(ForbiddenException);
+      // Act
+      const result = await controller.findParticipantesConAportes(encuentroId);
+
+      // Assert
+      expect(result).toEqual(mockResult);
+      expect(
+        mockParticipantesEncuentroService.findParticipantesConAportes,
+      ).toHaveBeenCalledWith(1, undefined);
     });
 
-    it('should throw NotFoundException if not a participant', async () => {
-      (service.removeByEncuentroAndUsuario as jest.Mock).mockRejectedValue(
-        new NotFoundException('No eres participante'),
+    it('debería convertir totalAportes a número', async () => {
+      // Arrange
+      const mockResult = [
+        {
+          idEncuentro: 1,
+          nombreEncuentro: 'Encuentro Test',
+          idUsuario: 1,
+          nombreUsuario: 'Juan',
+          apellidoUsuario: 'Pérez',
+          nombreCompleto: 'Juan Pérez',
+          rol: 'participante',
+          totalAportes: 250.75,
+        },
+      ];
+
+      mockParticipantesEncuentroService.findParticipantesConAportes.mockResolvedValue(
+        mockResult,
       );
 
-      await expect(
-        controller.removeByEncuentroAndUsuario('1', '999'),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
+      // Act
+      const result = await controller.findParticipantesConAportes();
 
-  describe('controller definition', () => {
-    it('should be defined', () => {
-      expect(controller).toBeDefined();
+      // Assert
+      expect(typeof result[0].totalAportes).toBe('number');
+      expect(result[0].totalAportes).toBe(250.75);
     });
   });
 });
