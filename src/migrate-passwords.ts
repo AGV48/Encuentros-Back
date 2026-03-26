@@ -15,7 +15,7 @@ import * as bcrypt from 'bcrypt';
  * 3. Ejecuta: node dist/migrate-passwords
  */
 
-async function migratePasswords() {
+export async function migratePasswords() {
   console.log('🔐 Iniciando migración de contraseñas...');
   
   const app = await NestFactory.createApplicationContext(AppModule);
@@ -70,14 +70,3 @@ async function migratePasswords() {
     await app.close();
   }
 }
-
-// Ejecutar la migración
-migratePasswords()
-  .then(() => {
-    console.log('🎉 Proceso finalizado');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('💥 Error fatal:', error);
-    process.exit(1);
-  });
