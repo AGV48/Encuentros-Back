@@ -137,6 +137,31 @@ describe('UsersController', () => {
 
       await expect(controller.createFriendRequest({ from: 1, to: 2 })).rejects.toThrow('Ya son amigos');
     });
+
+    it('debería manejar error -20001', async () => {
+      const error = new Error('ORA-20001: Database error');
+      mockUsersService.createFriendRequest.mockRejectedValue(error);
+
+      await expect(controller.createFriendRequest({ from: 1, to: 2 })).rejects.toThrow(
+        'Error al crear la solicitud de amistad.',
+      );
+    });
+
+    it('debería manejar error genérico sin código específico', async () => {
+      const error = new Error('Unexpected database error');
+      mockUsersService.createFriendRequest.mockRejectedValue(error);
+
+      await expect(controller.createFriendRequest({ from: 1, to: 2 })).rejects.toThrow(
+        'Unexpected database error',
+      );
+    });
+
+    it('debería manejar error con objeto en lugar de string', async () => {
+      const error = { error: 'Custom error object' };
+      mockUsersService.createFriendRequest.mockRejectedValue(error);
+
+      await expect(controller.createFriendRequest({ from: 1, to: 2 })).rejects.toThrow(HttpException);
+    });
   });
 
   describe('getNotifications', () => {
@@ -249,6 +274,54 @@ describe('UsersController', () => {
       await expect(controller.acceptRequest({ id_relacion_amistad: 1, userId: 2 })).rejects.toThrow(HttpException);
       expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
     });
+
+    it('debería lanzar 404 si no encuentra destRows', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id_usuario: 1 }])
+        .mockResolvedValueOnce([]); // destRows vacía
+
+      await expect(controller.acceptRequest({ id_relacion_amistad: 999, userId: 1 })).rejects.toThrow(
+        'No se encontró la solicitud de amistad asociada',
+      );
+    });
+
+    it('debería manejar alreadyFriend con "count" en lugar de "cnt"', async () => {
+      jest.clearAllMocks();
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id_usuario: 1 }]) // SELECT usuario_origen
+        .mockResolvedValueOnce([{ usuario_destino: 2 }]) // SELECT usuario_destino
+        .mockResolvedValueOnce([{ count: 1 }]) // Already friends check (count en lugar de cnt)
+        .mockResolvedValueOnce(undefined); // UPDATE relaciones_amistades
+
+      const result = await controller.acceptRequest({ id_relacion_amistad: 1, userId: 2 });
+      expect(result.message).toBe('Ya son amigos');
+    });
+
+    it('debería manejar error cuando catch de amistades falla', async () => {
+      jest.clearAllMocks();
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id_usuario: 1 }]) // SELECT usuario_origen
+        .mockResolvedValueOnce([{ usuario_destino: 2 }]) // SELECT usuario_destino
+        .mockRejectedValueOnce(new Error('Amistades check error')); // friendCheck falla
+
+      const mockQueryRunner = {
+        connect: jest.fn(),
+        startTransaction: jest.fn(),
+        query: jest.fn()
+          .mockResolvedValueOnce(undefined) // UPDATE relaciones_amistades
+          .mockResolvedValueOnce(undefined), // INSERT amistades
+        commitTransaction: jest.fn(),
+        rollbackTransaction: jest.fn(),
+        release: jest.fn(),
+      };
+
+      mockDataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
+
+      // Debería proceder a la transacción normal aunque falle el check
+      const result = await controller.acceptRequest({ id_relacion_amistad: 1, userId: 2 });
+      expect(result.message).toBe('Solicitud aceptada');
+      expect(mockQueryRunner.startTransaction).toHaveBeenCalled();
+    });
   });
 
   describe('rejectRequest', () => {
@@ -285,6 +358,23 @@ describe('UsersController', () => {
         'Solo el destinatario puede rechazar la solicitud',
       );
     });
+
+    it('debería manejar error de base de datos en rejectRequest', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ usuario_destino: 2 }])
+        .mockRejectedValueOnce(new Error('DB error')); // DELETE solicitud falla
+
+      await expect(controller.rejectRequest({ id_relacion_amistad: 1, userId: 2 })).rejects.toThrow(HttpException);
+    });
+
+    it('debería manejar error con JSON stringify en rejectRequest', async () => {
+      const circularObj: any = {};
+      circularObj.self = circularObj;
+      mockDataSource.query.mockResolvedValueOnce([{ usuario_destino: 2 }]);
+      mockDataSource.query.mockRejectedValueOnce(new Error('Complex error'));
+
+      await expect(controller.rejectRequest({ id_relacion_amistad: 1, userId: 2 })).rejects.toThrow(HttpException);
+    });
   });
 
   describe('create', () => {
@@ -306,6 +396,14 @@ describe('UsersController', () => {
         'El correo ya está registrado, intenta con otro',
       );
       expect(mockUsersService.create).not.toHaveBeenCalled();
+    });
+
+    it('debería manejar error en usersService.create()', async () => {
+      const dto: CreateUserDto = { nombre: 'John', apellido: 'Doe', email: 'john@test.com', contrasena: 'pass123' };
+      mockUsersService.findByEmail.mockResolvedValue(null);
+      mockUsersService.create.mockRejectedValue(new Error('DB error'));
+
+      await expect(controller.create(dto)).rejects.toThrow('DB error');
     });
   });
 

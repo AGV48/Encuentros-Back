@@ -499,5 +499,213 @@ describe('UsersService', () => {
       expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.release).toHaveBeenCalled();
     });
+
+    it('debería rollback si falla la transacción de solicitud cruzada aceptada', async () => {
+      // Arrange
+      const from = 1;
+      const to = 2;
+      
+      // checkFriendshipForRequest
+      mockDataSource.query.mockResolvedValueOnce([{ cnt: 0 }]);
+      
+      // checkAndAcceptReversePendingRequest - busca solicitud cruzada
+      mockDataSource.query.mockResolvedValueOnce([{ id_relacion: 5 }]);
+
+      const mockQueryRunner = {
+        connect: jest.fn(),
+        startTransaction: jest.fn(),
+        query: jest.fn().mockRejectedValue(new Error('Transaction failed')),
+        commitTransaction: jest.fn(),
+        rollbackTransaction: jest.fn(),
+        release: jest.fn(),
+      };
+
+      mockDataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
+
+      // Act & Assert
+      await expect(service.createFriendRequest(from, to)).rejects.toThrow('Transaction failed');
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+    });
+  });
+
+  describe('create', () => {
+    it('debería crear usuario con apellido y imagenPerfil undefined', async () => {
+      // Arrange
+      const createUserDto = {
+        nombre: 'John',
+        apellido: undefined,
+        email: 'john@test.com',
+        contrasena: 'hashedPass',
+        imagenPerfil: undefined,
+      };
+
+      const expectedUser: Partial<User> = {
+        nombre: 'John',
+        apellido: undefined,
+        email: 'john@test.com',
+        contrasena: 'hashedPass',
+        imagenPerfil: undefined,
+      };
+
+      mockUserRepository.create.mockReturnValue(expectedUser);
+      mockUserRepository.save.mockResolvedValue(expectedUser as User);
+
+      // Act
+      const result = await service.create(createUserDto as any);
+
+      // Assert
+      expect(mockUserRepository.create).toHaveBeenCalledWith(expectedUser);
+      expect(result).toEqual(expectedUser);
+    });
+
+    it('debería crear usuario sin apellido y con imagenPerfil', async () => {
+      // Arrange
+      const createUserDto = {
+        nombre: 'Jane',
+        email: 'jane@test.com',
+        contrasena: 'hashedPass',
+        imagenPerfil: 'profile.jpg',
+      };
+
+      const expectedUser: Partial<User> = {
+        nombre: 'Jane',
+        apellido: undefined,
+        email: 'jane@test.com',
+        contrasena: 'hashedPass',
+        imagenPerfil: 'profile.jpg',
+      };
+
+      mockUserRepository.create.mockReturnValue(expectedUser);
+      mockUserRepository.save.mockResolvedValue(expectedUser as User);
+
+      // Act
+      const result = await service.create(createUserDto as any);
+
+      // Assert
+      expect(mockUserRepository.create).toHaveBeenCalled();
+      expect(result.imagenPerfil).toBe('profile.jpg');
+    });
+  });
+
+  describe('Private methods error handling', () => {
+    it('checkFriendship: debería retornar false si la query falla', async () => {
+      // Arrange
+      mockDataSource.query.mockRejectedValue(new Error('DB connection error'));
+
+      // Act & Assert - no debería lanzar error, retorna false
+      const result = await (service as any).checkFriendship(1, 2);
+      expect(result).toBe(false);
+    });
+
+    it('checkPendingRequestFromMe: debería retornar false si la query falla', async () => {
+      // Arrange
+      mockDataSource.query.mockRejectedValue(new Error('DB error'));
+
+      // Act & Assert
+      const result = await (service as any).checkPendingRequestFromMe(1, 2);
+      expect(result).toBe(false);
+    });
+
+    it('checkPendingRequestToMe: debería retornar false si la query falla', async () => {
+      // Arrange
+      mockDataSource.query.mockRejectedValue(new Error('DB error'));
+
+      // Act & Assert
+      const result = await (service as any).checkPendingRequestToMe(1, 2);
+      expect(result).toBe(false);
+    });
+
+    it('checkFriendshipForRequest: debería retornar false si la query falla', async () => {
+      // Arrange
+      mockDataSource.query.mockRejectedValue(new Error('DB error'));
+
+      // Act & Assert
+      const result = await (service as any).checkFriendshipForRequest(1, 2);
+      expect(result).toBe(false);
+    });
+
+    it('checkFriendship: debería manejar respuesta con "count" en lugar de "cnt"', async () => {
+      // Arrange - algunos drivers retornan "count" en lugar de "cnt"
+      mockDataSource.query.mockResolvedValue([{ count: 1 }]);
+
+      // Act
+      const result = await (service as any).checkFriendship(1, 2);
+
+      // Assert
+      expect(result).toBe(true);
+    });
+
+    it('checkPendingRequestFromMe: debería manejar respuesta null', async () => {
+      // Arrange
+      mockDataSource.query.mockResolvedValue([]);
+
+      // Act
+      const result = await (service as any).checkPendingRequestFromMe(1, 2);
+
+      // Assert
+      expect(result).toBe(false);
+    });
+
+    it('checkAndAcceptReversePendingRequest: debería retornar {accepted: false} si query falla', async () => {
+      // Arrange
+      mockDataSource.query.mockRejectedValue(new Error('DB error'));
+
+      // Act
+      const result = await (service as any).checkAndAcceptReversePendingRequest(1, 2);
+
+      // Assert
+      expect(result).toEqual({ accepted: false });
+    });
+
+    it('checkAndAcceptReversePendingRequest: debería manejar id_relacion_amistad como alternativa a id_relacion', async () => {
+      // Arrange
+      mockDataSource.query.mockResolvedValueOnce([{ id_relacion_amistad: 7 }]); // Busca solicitud cruzada
+
+      const mockQueryRunner = {
+        connect: jest.fn(),
+        startTransaction: jest.fn(),
+        query: jest.fn()
+          .mockResolvedValueOnce(undefined) // UPDATE
+          .mockResolvedValueOnce(undefined), // INSERT amistades
+        commitTransaction: jest.fn(),
+        rollbackTransaction: jest.fn(),
+        release: jest.fn(),
+      };
+
+      mockDataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
+
+      // Act
+      const result = await (service as any).checkAndAcceptReversePendingRequest(2, 1);
+
+      // Assert
+      expect(result.accepted).toBe(true);
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+    });
+
+    it('annotateSearchResults: debería retornar anotaciones correctas incluso si métodos privados fallan', async () => {
+      // Arrange
+      const users = [
+        { id: 2, nombre: 'User2', apellido: 'Two' } as User,
+        { id: 3, nombre: 'User3', apellido: 'Three' } as User,
+      ];
+
+      // Hacer que checkFriendship, checkPendingRequestFromMe, checkPendingRequestToMe fallen
+      mockDataSource.query
+        .mockRejectedValueOnce(new Error('DB error')) // checkFriendship para user 2
+        .mockRejectedValueOnce(new Error('DB error')) // checkPendingRequestFromMe para user 2
+        .mockRejectedValueOnce(new Error('DB error')) // checkPendingRequestToMe para user 2
+        .mockRejectedValueOnce(new Error('DB error')) // checkFriendship para user 3
+        .mockRejectedValueOnce(new Error('DB error')) // checkPendingRequestFromMe para user 3
+        .mockRejectedValueOnce(new Error('DB error')); // checkPendingRequestToMe para user 3
+
+      // Act
+      const result = await service.annotateSearchResults(users, 1);
+
+      // Assert
+      expect(result).toHaveLength(2);
+      expect(result[0].isFriend).toBe(false); // Default cuando hay error
+      expect(result[0].pendingRequestFromMe).toBe(false);
+      expect(result[0].pendingRequestToMe).toBe(false);
+    });
   });
 });
